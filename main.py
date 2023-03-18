@@ -7,6 +7,7 @@ from machine import UART
 import utime
 import rp2
 import struct
+import uasyncio as asyncio
 
 MAX_TELEGRAM_LENGTH=137
 
@@ -20,27 +21,151 @@ U_L_DATAEND = 0x40  # + length, min of 7
 
 print ("BEGIN...")
 uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
-#uart0 = UART(1, baudrate=19200, tx=Pin(4), rx=Pin(5), timeout_char=2)
+led = Pin(25, Pin.OUT)
 
-def read_packet():
-    while True:
-        mybytes = uart0.read(MAX_TELEGRAM_LENGTH)
-        if mybytes:
-            # print("READ:", mybytes)
-            return mybytes
+class KNXAddress(object):
+    _addr_delimiter = '.'
+    _high_order_bits = 12
+    _type = 'source'
+
+    def __init__(self, addr=None, ):
+        self.addr_highest_bit = -1
+        self.addr_high = -1
+        self.addr_middle = -1
+        self.addr_low = -1
+        if addr:
+            self.set_addr(addr)
+        else:
+            self.addr = -1  # integer of address
+        self.level = 3   # KNX addressing levels,2 or 3
         
-def debug_resp(mybytes):
-    if len(mybytes) == 1:
-        dat = struct.unpack('>B', mybytes)
-        print (f"UART: {dat[0]} 0x{dat[0]:x} {dat[0]:#08b}")
-    elif len(mybytes) > 6:
-        telegram = Telegram(mybytes)
-        print (telegram)
-    else:
-        print (mybytes)
+    def __str__(self):
+        output = f"{self.addr_high}{self._addr_delimiter}{self.addr_middle}{self._addr_delimiter}{self.addr_low}"
+        return output
 
-   
-    
+    def __repr__(self):
+        output = f"KNX:{self.addr}: {self.addr_high}{self._addr_delimiter}{self.addr_middle}{self._addr_delimiter}{self.addr_low}"
+
+    def __int__(self):
+        return self.addr
+
+    def __gt__(self, other):
+        if isinstance(other, int):
+            return self.addr > other
+        return self.addr > other.addr
+
+    def __lt__(self, other):
+        if isinstance(other, int):
+            return self.addr < other
+        return self.addr < other.addr
+
+    def __len__(self):
+        return 2
+
+    def __eq__(self, other):
+        if isinstance(other, int):
+            return self.addr == other 
+        return self.addr == other.addr
+
+    def set_addr(self, addr):
+        # print ("set_addr....", addr)
+        if isinstance(addr, str):
+            # print ("ME STRING")
+            self.addr = self.knx_addr_from_string(addr)
+            return True
+        elif isinstance(addr, bytes):
+            # print ("ME BYTES")
+            self.addr = self.knx_addr_from_bytes(addr)
+            return True
+        elif isinstance(addr, int):
+            # print ("ME INT")
+            self.addr = self.knx_addr_from_int(addr)
+            self.addr = addr
+            return True
+        return False
+
+    def knx_addr_from_parts(self):
+        # calculate self.sa from the area, line and parts
+        # print ("KNX ADDR FROM PARTS self.addr_parts", self.addr_high, self.addr_middle, self.addr_low)
+        # print ("KNX ADDR IS::::",  self.addr_low + (self.addr_middle << 8) + (self.addr_high << 12) )
+        return self.addr_low + (self.addr_middle << 8) + (self.addr_high << 12)      
+
+    def knx_addr_from_string(self, addr):
+        # check number of . s
+        parts = addr.split(self._addr_delimiter)
+        delimiter = self._addr_delimiter
+        # if no parts, or just one part then try the . as a fallback
+        if not parts or len(parts) != 3:
+            parts = addr.split('.')
+            delimiter = '.'
+        if len(parts) == 3:
+            # add a 3 level source address and encode it into the sa
+            self.addr_high, self.addr_middle, self.addr_low = [int(x) for x in addr.split(delimiter)]
+            self.level = 3
+            return self.knx_addr_from_parts()
+            
+    def knx_addr_from_bytes(self, bytes_addr):
+        #  try to figure out the source address from a 16 bit encoded string
+        # AAAALLLLBBBBBBBB  A=Area, L=Line, B=Bus Device
+        addr=struct.unpack('H', bytes_addr)[0]
+        self.knx_addr_from_int(addr)
+        return self.knx_addr_from_parts()
+
+    def knx_addr_from_int(self, addr):
+        self.addr_low=addr & 0b0000000011111111
+        self.addr_middle= (addr >> 8) & 0b00001111
+        self.addr_high= (addr >> self._high_order_bits)
+        self.addr_highest_bit= (addr >> 15 & 0b1 )
+        return addr
+
+    @property
+    def address_type(self):
+        return self._type
+
+    @property
+    def byte(self):
+        # encode as a bytes
+        return struct.pack(">H", self.addr)
+
+    @property
+    def bytearray(self):
+        # encode as a bytes
+        return bytearray(self.byte)
+
+
+class KNXSourceAddress(KNXAddress):
+
+    @property
+    def area(self):
+        return self.addr_high
+
+    @property
+    def line(self):
+        return self.addr_middle
+
+    @property
+    def bus_device(self):
+        return self.addr_low
+
+
+class KNXDestinationAddress(KNXAddress):
+    # MMMMMIIISSSSSSSS   M=Main Group, I= Middle Group, S=Subgroup
+    _addr_delimiter = '/'
+    _high_order_bits = 11
+    _type = 'destination'
+
+    @property
+    def main_group(self):
+        return self.addr_high
+
+    @property
+    def middle_group(self):
+        return self.addr_middle
+
+    @property
+    def subgroup(self):
+        return self.addr_low
+
 
 class DPT(object):
     
@@ -87,9 +212,6 @@ class DPT(object):
                 myformat = '>B' + self.struct_format[1:]
             else:
                 myformat = 'B' + self.struct_format
-            print ("MYFORMAT:", myformat)
-            print ("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk acpi.val:", self.acpi_value)
-            print ("ddddddddddddddd: ")
             return struct.pack(myformat, self.acpi_value >> 2, ((self.acpi_value << 6) + self.value))
         # return the acpi value as two bytes, and then the data after that
         # TODO
@@ -216,7 +338,7 @@ class APCI(object):
         return 4
         
     def add(self, other):
-        print ("APCI Add other:", other, self.apci, self.bits)
+        # print ("APCI Add other:", other, self.apci, self.bits)
         if self.apci == -1:
             # shift bits 2 places right of the number of bits (2 for a 4 bit, 8 for a 10 bit apci)
             self.apci = other << (self.bits - 2)
@@ -335,8 +457,8 @@ class KNXControlField(object):
 class Telegram(object):
     def __init__(self, packet=None, src=None, dst=None, init=False):
         self.cf = KNXControlField(init=init)
-        self.sa = None
-        self.da = None
+        self.sa = KNXSourceAddress(addr=src)
+        self.da = KNXDestinationAddress(addr=dst)
         self.address_type_flag = None
         self.length = None
         if init:
@@ -350,11 +472,6 @@ class Telegram(object):
         self.packet = packet
         if packet:
             self.parse_packet_data(packet)
-        else:
-            if src:
-                self.add_sa(src)
-            if dst:
-                self.add_da(dst)
         self.payload = None   # payload of the telegram, should be a DTP
             
     def __str__(self):
@@ -363,10 +480,10 @@ class Telegram(object):
             output += f'{self.cf}'
             
         if self.sa:
-            output += (f'{self.area}.{self.line}.{self.bus_device} ')
+            output += (f'{self.sa} ')
 
         if self.da:
-            output += (f"--> {self.main_group}/{self.middle_group}/{self.subgroup} ")
+            output += (f"--> {self.da} ")
         output += f"|{self.address_type}|"
         if self.hop_count:
             output += f"|hops {self.hop_count}|"
@@ -402,7 +519,6 @@ class Telegram(object):
             xor_sum = xor_sum ^ packet[octet]   # running sum of xors of all payload octets
         # print ("XOR_SUM:", xor_sum, type(xor_sum))
         checksum = xor_sum ^ 0xff
-        print ("xxxxxxxxxCHECKSUM:", checksum, hex(checksum))
         return checksum 
         
     
@@ -417,8 +533,10 @@ class Telegram(object):
         data = struct.unpack('>BHHBB', packet)
         #self.parse_cf(data[0])
         self.cf = KNXControlField(data[0])
-        self.parse_sa(data[1])
-        self.parse_da(data[2])
+        #self.parse_sa(data[1])
+        self.sa.set_addr(data[1])
+        #self.parse_da(data[2])
+        self.da.set_addr(data[2])
         self.parse_len(data[3])
         self.parse_payload(data[4])
         self.pointer = struct.calcsize('>BHHBB')
@@ -431,42 +549,6 @@ class Telegram(object):
             # print ("PAYLOAD2:", payload_test)
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
-        
-    def add_sa(self, addr):
-        # add a 3 level source address and encode it into the sa
-        self.area, self.line, self.bus_device = [int(x) for x in addr.split(".")]
-        self.encode_sa_from_parts()
-        
-    def encode_sa_from_parts(self):
-        # calculate self.sa from the area, line and parts
-        self.sa = self.bus_device + (self.line << 8) + (self.area << 12)      
-            
-    def parse_sa(self, sa):
-        #  try to figure out the source address
-        # AAAALLLLBBBBBBBB  A=Area, L=Line, B=Bus Device
-        self.sa = sa
-        self.bus_device=sa & 0b0000000011111111
-        self.line= (sa >> 8) & 0b00001111
-        self.area= (sa >> 12)
-        
-    def add_da(self, addr):
-        # add a 3 level destination address
-        self.main_group, self.middle_group, self.subgroup = [int(x) for x in addr.split(".")]
-        self.encode_da_from_parts()
-        
-    def encode_da_from_parts(self):
-        # calc da from its parts
-        self.da = self.subgroup + (self.middle_group << 8) + (self.main_group << 12)
-        
-    def parse_da(self, da):
-        # try to figure out the destination address
-        # use a 3 level group
-        # MMMMMIIISSSSSSSS   M=Main Group, I= Middle Group, S=Subgroup
-        self.da = da
-        self.subgroup = da & 0b000000001111111
-        self.middle_group = (da >> 8) & 0b00000111
-        self.main_group = (da >> 11)
-        
     
     def parse_len(self, len_data):
         # parse address type, hop count, length
@@ -480,12 +562,13 @@ class Telegram(object):
     def address_type(self):
         # return a string on the address type
         if self.address_type_flag is not None:
-            if self.address_type_flag == 0:
+            if self.address_type_flag == 0 and self.da > 0:
                 return "Unicast"
-            if self.da is not None and self.da == 0:
+            if self.address_type_flag == 1 and self.da > 0:
+                return "Multicast"
+            if self.address_type_flag and self.da is not None and self.da == 0:
                 return "Broadcast"
-            return "Multicast"
-        return ""      
+        return "ILLEGAL"      
 
 
     def parse_payload(self, payload_header):
@@ -504,29 +587,23 @@ class Telegram(object):
         if purpose:
             # print ("CONTROL DATA")
             control_data = payload_header & 0b00000011
-            print ("Control Data:", control_data_map[control_data]) 
-        else:
-            print ("DATA PACKET")
         seq = payload_header & 0b01000000
         if seq:
             # read in the SQN
             sqn = (payload_header >> 2) & 0b00001111
-            print ("SQN:", sqn)
+            # print ("SQN:", sqn)
         if self.length == 1:
             # get the last two bits of this octet, assume a 10 bit APCI
             self.apci.add(payload_header & 0b00000011)
             self.apci_get_4bit()   # Pull the APCI from the next octet, plus the data
         elif self.length > 2:
-            print ("NEED 10 BIT APCI")
              # get the last two bits of this octet, assume a 10 bit APCI
-            self.apci.bits = 10
             self.apci.add(payload_header & 0b00000011)
             self.apci_get_next_byte()   # Pull the APCI from the next octet and set the pointer
 
 
     def apci_get_next_byte(self):
         # get the next byte from the pointer
-        print ("PAK:", self.pointer, self.packet[self.pointer])
         self.apci.add(self.packet[self.pointer])
         # increment pointer in the packet
         self.pointer += 1
@@ -536,12 +613,12 @@ class Telegram(object):
         # get the d7 and d6 which are the last two bits of the APCI
         self.apci.add((self.packet[self.pointer] & 0b11000000) >> 6)
         self.apci_data = self.packet[self.pointer] & 0b00111111
-        print (f"4 BIT APCI DATA 6 bits of data: {self.apci_data}  {self.apci_data:02x} {self.apci_data:>06b}")
+        #print (f"4 BIT APCI DATA 6 bits of data: {self.apci_data}  {self.apci_data:02x} {self.apci_data:>06b}")
 
 
     def add_data_packet(self, dpt, apci='GroupValueWrite'):
         # dpt should be a DPT class of some sort
-        print ("ADD DATA PACKET:", len(dpt), dpt)
+        #print ("ADD DATA PACKET:", len(dpt), dpt)
         if len(dpt) > 1:
             # we need a 10 bit APCI
             if apci == 'GroupValueWrite':
@@ -551,7 +628,7 @@ class Telegram(object):
         apci_rev_map = { value.upper():key for key,value in APCI.apci_map.items()}
         apci_val = apci_rev_map[apci.upper()]
         # print (apci_rev_map)
-        print ("APCI VAL:", apci_val)
+        #print ("APCI VAL:", apci_val)
         self.apci.apci = apci_val
         # construct the 6th octet with address type, use multicast for now, hop count is always 6
         self.hop_count = 6
@@ -562,7 +639,7 @@ class Telegram(object):
         #self.octet7 = apci_val >> 2
         # get the payload from the dpt
         payload = dpt.payload
-        print ("PAYLOADL:", dpt.payload)
+        #print ("PAYLOADL:", dpt.payload)
         """
         if apci_val < 16:
             # 4 bit apci, just add the last 6 bits of the dpt value
@@ -589,33 +666,275 @@ class Telegram(object):
             # first octet of the payload field
             self.octet7 = apci_val >> 2
         """
-        print ("SET SELF PAYLOAD")
+        #print ("SET SELF PAYLOAD")
         self.payload = payload
-        print ("self.payload:", self.payload, type(self.payload))
+        #print ("self.payload:", self.payload, type(self.payload))
         
     def frame(self):
         # construct a telegram frame to be sent
         # pack the CF,SA,DA, octet6 and payload
-        print ("self.cf", self.cf, int(self.cf), hex(self.cf))
-        print ("self.sa:", self.sa)
-        print ("self.da:", self.da)
         frame_header = struct.pack('>BHHB', self.cf, self.sa, self.da, self.octet6)
         frame = bytearray(frame_header)
-        print ("frammmmmmmmmmme:", frame, type(frame))
-        print ("sssssssssself.pylod:", self.payload, type(self.payload))
         frame.extend(self.payload)
         # calculate the checksum
         xsum = struct.pack('>B', self.calculate_checksum(frame))[0]
-        print ("XSUM:", xsum, type(xsum))
-        print ("frame type:", type(frame))
         frame.append(xsum)
         
         return frame
-        
-    
-        
-# tpu
 
+        
+class KNXBCUDevice(object):
+    # Siemens BCU interface
+    def __init__(self, uart, timeout=1000):
+        self.uart = uart
+        self.timeout = timeout  # timeout in ms
+        self.swriter = asyncio.StreamWriter(self.uart, {})
+        self.sreader = asyncio.StreamReader(self.uart)
+
+    def write_frame(self, frame):
+        # send a frame to the tpuart
+        # print ("WRITE FRAME:", frame)
+        for i in range (0, len(frame)):
+            # print ("OCTET", i, frame[i])
+            if i == len(frame) -1:
+                # end of packet
+                # print ("EOP")
+                cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
+            else:
+                cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
+            # print ("-cmd:", cmd)
+            self.uart.write(cmd)
+        # read the response
+        utime.sleep_ms(150)
+        resp = self.read_packet()
+        self.debug_resp(resp)
+
+    # send U_Reset.request-Service
+    def reset_device(self):
+        self.uart.write(b'\x01')
+        utime.sleep_ms(50)
+        rest_indication = self.uart.read(MAX_TELEGRAM_LENGTH)
+        print ("RESET INDICATION:", rest_indication)
+        if rest_indication == b'\x03':
+            return True
+        return False
+
+    def status_request(self):
+        # get a status request
+        print ("STATUS REQUEST---------")
+        self.uart.write(b'\x02')
+        utime.sleep_ms(50)
+        resp = struct.unpack('B', self.read_packet())[0]
+        if resp == 0b00000111:
+            print ("STATUS - OK")
+            return True
+        # look for errors
+        errors = []
+        if (resp >> 3) & 0b1:
+            print ("TEMPERATURE WARNING")
+            errors.append('TW')
+        if (resp >> 4) & 0b1:
+            print ("PROTOCOL ERROR")
+            errors.append('PE')
+        if (resp >> 5) & 0b1:
+            print ("TRANSMITTOR ERROR")
+            errors.append("TE")
+        if (resp >> 6) & 0b1:
+            print ("RECIVE ERROR")
+            errors.append('RE')
+        if (resp >> 7) & 0b1:
+            print ("SLAVE COLLISION")
+            errors.append("SC")
+        return False
+
+        
+    def set_knx_address(self, addr):
+        print ("SET ADDRESS:", addr)
+        area, line, bus_device = [int(x) for x in addr.split(".")]
+        myaddr = bus_device + (line << 8) + (area << 12)     
+        cmd_bytes = struct.pack('>BH', U_SETADDRESS, myaddr)
+        print (f"SET ADDRESS", addr, myaddr, cmd_bytes)
+        self.uart.write(cmd_bytes)
+        utime.sleep_ms(250)
+
+    def read_packet(self):
+        while True:
+            mybytes = self.uart.read(MAX_TELEGRAM_LENGTH)
+            if mybytes:
+                # print("READ:", mybytes)
+                return mybytes
+            
+    def debug_resp(self, mybytes):
+        if len(mybytes) == 1:
+            dat = struct.unpack('>B', mybytes)
+            print (f"UART: {dat[0]} 0x{dat[0]:x} {dat[0]:#08b}")
+        elif len(mybytes) > 6:
+            telegram = Telegram(mybytes)
+            print (telegram)
+        else:
+            print (mybytes)
+
+    def get_product_id(self):
+        # send TP-UART-ProductID.response Service
+        uart0.write(b'\x20')
+        utime.sleep_ms(50)
+        prod_id = self.read_packet()
+        print ("PROD ID:", prod_id)
+        return prod_id
+
+    
+class KNXDevice(object):
+    # Siemens BCU interface
+    def __init__(self, uart, timeout=1000):
+        self.uart = uart
+        self.timeout = timeout  # timeout in ms
+        self.swriter = asyncio.StreamWriter(self.uart, {})
+        self.sreader = asyncio.StreamReader(self.uart)
+        self.xmit_queue = []
+        self.receive_queue = []
+        self.loop = asyncio.get_event_loop()
+        self.loop.create_task(self._recv())
+        self.loop.create_task(self._writer())
+        #asyncio.create_task(self._writer())
+        print ("self.loop:", self.loop, dir(self.loop))
+        self.loop.run_forever()
+
+    async def _recv(self):
+        print ("_recv KNX READER STARTING", self.uart)
+        while True:
+            res = await self.sreader.read(MAX_TELEGRAM_LENGTH)
+            telegram = Telegram(packet=res)
+            self.receive_queue.append(telegram)
+            print ('x')
+
+    async def _writer(self):
+        print ("_write KNX WRITER STARTING", self.uart)
+        while True:
+            await asyncio.sleep(1)
+            #print ("Sleep....")
+            if False:
+                frame = self.xmit_queue.pop(0)
+                print ("Need xmit frame:", frame)
+                await self.swriter.awrite(frame)
+
+    def write_frame(self, frame):
+        # send a frame to the tpuart
+        # print ("WRITE FRAME:", frame)
+        for i in range (0, len(frame)):
+            # print ("OCTET", i, frame[i])
+            if i == len(frame) -1:
+                # end of packet
+                cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
+            else:
+                cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
+            # print ("-cmd:", cmd)
+            self.uart.write(cmd)
+        # read the response
+        utime.sleep_ms(150)
+        resp = self.read_packet()
+        self.debug_resp(resp)
+
+    # send U_Reset.request-Service
+    def reset_device(self):
+        self.uart.write(b'\x01')
+        utime.sleep_ms(50)
+        rest_indication = self.uart.read(MAX_TELEGRAM_LENGTH)
+        print ("RESET INDICATION:", rest_indication)
+        if rest_indication == b'\x03':
+            return True
+        return False
+
+    def status_request(self):
+        # get a status request
+        print ("STATUS REQUEST --------")
+        self.uart.write(b'\x02')
+        utime.sleep_ms(50)
+        resp = struct.unpack('B', self.read_packet())[0]
+        # print ("RESP:", resp, type(resp))
+        if resp == 0b00000111:
+            print ("STATUS - OK")
+            return True
+        # look for errors
+        errors = []
+        if (resp >> 3) & 0b1:
+            print ("TEMPERATURE WARNING")
+            errors.append('TW')
+        if (resp >> 4) & 0b1:
+            print ("PROTOCOL ERROR")
+            errors.append('PE')
+        if (resp >> 5) & 0b1:
+            print ("TRANSMITTOR ERROR")
+            errors.append("TE")
+        if (resp >> 6) & 0b1:
+            print ("RECIVE ERROR")
+            errors.append('RE')
+        if (resp >> 7) & 0b1:
+            print ("SLAVE COLLISION")
+            errors.append("SC")
+        return False
+
+        
+    def set_knx_address(self, addr):
+        area, line, bus_device = [int(x) for x in addr.split(".")]
+        myaddr = bus_device + (line << 8) + (area << 12)     
+        cmd_bytes = struct.pack('>BH', U_SETADDRESS, myaddr)
+        self.uart.write(cmd_bytes)
+        utime.sleep_ms(250)
+
+    def read_packet(self):
+
+        while True:
+            mybytes = self.uart.read(MAX_TELEGRAM_LENGTH)
+            if mybytes:
+                # print("READ:", mybytes)
+                return mybytes
+            
+    def debug_resp(self, mybytes):
+        if len(mybytes) == 1:
+            dat = struct.unpack('>B', mybytes)
+            print (f"UART: {dat[0]} 0x{dat[0]:x} {dat[0]:#08b}")
+        elif len(mybytes) > 6:
+            telegram = Telegram(mybytes)
+            print (telegram)
+        else:
+            print (mybytes)
+
+    def get_product_id(self):
+        # send TP-UART-ProductID.response Service
+        uart0.write(b'\x20')
+        utime.sleep_ms(50)
+        prod_id = self.read_packet()
+        print ("PROD ID:", prod_id)
+        return prod_id
+
+
+
+"""
+myaddr = KNXAddress("0.0.1")
+print (myaddr)
+print (myaddr.bytearray)
+
+myaddr = KNXAddress("1.0.4")
+print (myaddr)
+print (myaddr.bytearray)
+
+myaddr = KNXAddress(4101)
+print (myaddr)
+print (myaddr.bytearray)
+
+myaddr = KNXAddress(b'\x11\x04')
+print (myaddr)
+print (myaddr.bytearray)
+"""
+
+
+        
+# KNX Device
+#knx = KNXBCUDevice(uart0)
+knx = KNXDevice(uart0)
+print ("am i here?")
+
+"""
 print ('\n\n\n')
 test_bytes = b'\xBC\x11\x04\x00\x01\xE1\x00\x81\x37'
 #test2bytes = b'\xbc\x11\x04\x00\x01\xe1\x00\x80\xb6'
@@ -623,135 +942,108 @@ test_bytes = b'\xBC\x11\x04\x00\x01\xE1\x00\x81\x37'
 test2bytes = b'\xbc\x11\x13\x00\x01\xe1\x00\x80\xbf'
 test_telegram = Telegram(test_bytes)
 print (test_telegram)
-#uart0.write(test_bytes)
+knx.write_frame(test_bytes)
 
-def write_frame(frame):
-    # send a frame to the tpuart
-    print ("WRITE FRAME:", frame)
-    for i in range (0, len(frame)):
-        # print ("OCTET", i, frame[i])
-        if i == len(frame) -1:
-            # end of packet
-            print ("EOP")
-            cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
-        else:
-            cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
-        print ("-cmd:", cmd)
-        uart0.write(cmd)
-    # read the response
-    utime.sleep_ms(150)
-    resp = read_packet()
-    debug_resp(resp)
-
-# send U_Reset.request-Service
-def reset_device():
-    uart0.write(b'\x01')
-    utime.sleep_ms(50)
-    rest_indication = uart0.read(100)
-    print ("RESET INDICATION:", rest_indication)
-    if rest_indication == b'\x03':
-        return True
-    return False
-
-if reset_device:
-    print ("I RESET OK")
-else:
-    print ("NO RESETTY")
 
 utime.sleep_ms(1000)
-# send TP-UART-ProductID.response Service
-uart0.write(b'\x20')
-utime.sleep_ms(50)
-prod_id = read_packet()
-print ("PROD ID:", prod_id)
 # try to set the address
-
-def status_request():
-    # get a status request
-    print ("STATUS REQUEST---------")
-    uart0.write(b'\x02')
-    utime.sleep_ms(50)
-    resp = struct.unpack('B', read_packet())[0]
-    print ("RESP:", resp, type(resp))
-    if resp == 0b00000111:
-        print ("STATUS - OK")
-        return True
-    # look for errors
-    errors = []
-    if (resp >> 3) & 0b1:
-        print ("TEMPERATURE WARNING")
-        errors.append('TW')
-    if (resp >> 4) & 0b1:
-        print ("PROTOCOL ERROR")
-        errors.append('PE')
-    if (resp >> 5) & 0b1:
-        print ("TRANSMITTOR ERROR")
-        errors.append("TE")
-    if (resp >> 6) & 0b1:
-        print ("RECIVE ERROR")
-        errors.append('RE')
-    if (resp >> 7) & 0b1:
-        print ("SLAVE COLLISION")
-        errors.append("SC")
-    return False
-
-    
-status_request()
-
-def set_address(addr_bytes):
-    pass
-    
-def set_knx_address(addr, loops=1):
-    print ("SET ADDRESS:", addr)
-    area, line, bus_device = [int(x) for x in addr.split(".")]
-    myaddr = bus_device + (line << 8) + (area << 12)     
-    cmd_bytes = struct.pack('>BH', U_SETADDRESS, myaddr)
-    print (f"SET ADDRESS {loops}", addr, myaddr, cmd_bytes)
-    uart0.write(cmd_bytes)
-    utime.sleep_ms(250)
+"""
 
     
     
 #addrbytes = b'\x28\x11\x04'
 MYKNXADDR="1.1.6"
-set_knx_address(MYKNXADDR)
-status_request()
+#knx.set_knx_address(MYKNXADDR)
+#knx.status_request()
 
 
 
 # make a telegram
 mytelegram = Telegram(src=MYKNXADDR, dst="0.0.1", init=True)
 mydpt = DPT_Switch()
-mydpt.value = 1
-print ("MY DPT:", mydpt)
+mydpt.value = 0
+#print ("MY DPT:", mydpt)
 mytelegram.add_data_packet(mydpt)
-print ("MY TELEGRAM:", mytelegram)
-print ("MY TELETGRAM FRAME:", mytelegram.frame())
+#print ("MY TELEGRAM:", mytelegram)
 frame = mytelegram.frame()
 # try to send it
-
-write_frame(frame)
+#knx.write_frame(frame)
 
 #write_frame(test_bytes)
 
+async def toggle(t):
+    while True:
+        await asyncio.sleep_ms(t)
+        led.toggle()
 
+t = 0
+async def main(duration):
+    t = 200
+    print ("main")
+    print("Flash the lED")
+    asyncio.create_task(toggle(t))
+    t += 1
+    if t > 2000:
+        t = 0
+    await asyncio.sleep(duration)
 
+def flashy(duration=10):
+    print ("flashy...")
+    try:
+        asyncio.run(main(duration))
+    finally:
+        pass
+        #asyncio.new_event_loop()
+
+#flashy()
 
 
 pkt_ctr = 1        
-while not True:
-    mybytes = uart0.read(MAX_TELEGRAM_LENGTH)
-    if mybytes:
-        print ("len:", len(mybytes), mybytes)
-        if len(mybytes) == 1:
-            dat = struct.unpack('>B', mybytes)
-            print (f"UART: {dat[0]} {dat[0]:#08b}")
-        if len(mybytes) > 6:
-            telegram = Telegram(mybytes)
-            #print (telegram.sa)
-            pkt_ctr += 1
-            if telegram.sa == 4356:
-                if mybytes[7] == 129:
-                    utime.sleep_ms(1000)
-                    write_frame(frame)
-                print ("I SEE YOU!!!", mybytes[7])
+#async def main():
+if True:
+    #mybytes = uart0.read(MAX_TELEGRAM_LENGTH)
+    print (knx)
+    while True:
+        mybytes = False
+        if knx.receive_queue:
+            telegram =knx.recieve_queue.pop(0)
+            print (telegram)
+            utime.sleep_ms(100)
+        if mybytes:
+            print ("len:", len(mybytes), mybytes)
+            if len(mybytes) == 1:
+                dat = struct.unpack('>B', mybytes)
+                print (f"UART: {dat[0]} {dat[0]:#08b}")
+            if len(mybytes) > 6:
+                telegram = Telegram(mybytes)
+                #print (telegram.sa)
+                pkt_ctr += 1
+                if telegram.sa == 4356:
+                    print ("frame:", frame)
+                    if mybytes[7] == 129:
+                        utime.sleep_ms(1000)
+                        knx.write_frame(frame)
+                    print ("I SEE YOU!!!", mybytes[7])
+"""
+print("BONKERS")
+async def sender():
+    swriter = asyncio.StreamWriter(uart0, {})
+    while True:
+        # await swriter.awrite('Hello uart\n')
+        await asyncio.sleep(2)
+
+async def receiver():
+    sreader = asyncio.StreamReader(uart0)
+    while True:
+        res = await sreader.read(MAX_TELEGRAM_LENGTH)
+        print('Recieved', res)
+
+loop = asyncio.get_event_loop()
+print("BONKERS2")
+loop.create_task(sender())
+print("BONKERS3")
+loop.create_task(receiver())
+print("BONKERS4")
+loop.run_forever()
+print("BONKERS5")
+"""
