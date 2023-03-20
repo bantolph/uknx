@@ -116,11 +116,22 @@ class KNXDevice(object):
 
     async def rx_queue_monitor(self):
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
             print ("RX QUEUE:", self.rx_queue)
             print ("TX QUEUE:", self.tx_queue)
+            # pull the first telegram out of the rx queue
+            if self.rx_queue:
+                resp = self.process_telegram(self.rx_queue.get())
 
 
+    def process_telegram(self, telegram):
+        # is it data or management
+        if telegram.cf.priority == 0:
+            print ("SYSTEM TELEGRAM FOR ME!!!")
+        if telegram.control_data:
+            print ("CONTROL DATA MANAGMENT TELEGRAM!!!")
+        else:
+            print ("NORMALISH TELEGRAM FOR ME!!!")
     def start(self):
         # start event loop
         self.loop.run_forever()
@@ -276,8 +287,6 @@ print ("KNX:", knx)
 knx.add_group('0/0/1')
 knx.add_group('0/0/12')
 print ("KNX:", knx)
-
-print ("TTTTTTTTTTTTTT:", utime.time())
 
 # make a telegram
 mytelegram = Telegram(src=MYKNXADDR, dst="0.0.1", init=True)
