@@ -2,11 +2,7 @@
 u KNX
 upython 1.19.1
 """
-from machine import Timer
-from machine import Pin
-from machine import UART
-import utime
-import rp2
+import time
 import struct
 import uasyncio as asyncio
 
@@ -26,7 +22,6 @@ class KNXAddress(object):
     _type = 'source'
 
     def __init__(self, addr=None, ):
-        self.addr_highest_bit = -1
         self.addr_high = -1
         self.addr_middle = -1
         self.addr_low = -1
@@ -35,7 +30,7 @@ class KNXAddress(object):
         else:
             self.addr = -1  # integer of address
         self.level = 3   # KNX addressing levels,2 or 3
-        
+
     def __str__(self):
         output = f"{self.addr_high}{self._addr_delimiter}{self.addr_middle}{self._addr_delimiter}{self.addr_low}"
         return output
@@ -104,16 +99,21 @@ class KNXAddress(object):
     def knx_addr_from_bytes(self, bytes_addr):
         #  try to figure out the source address from a 16 bit encoded string
         # AAAALLLLBBBBBBBB  A=Area, L=Line, B=Bus Device
-        addr=struct.unpack('H', bytes_addr)[0]
+        addr=struct.unpack('>H', bytes_addr)[0]
         self.knx_addr_from_int(addr)
         return self.knx_addr_from_parts()
 
     def knx_addr_from_int(self, addr):
         self.addr_low=addr & 0b0000000011111111
-        self.addr_middle= (addr >> 8) & 0b00001111
-        self.addr_high= (addr >> self._high_order_bits)
-        self.addr_highest_bit= (addr >> 15 & 0b1 )
+        self.addr_middle=(addr >> 8) & 0b00001111
+        self.addr_high=addr >> self._high_order_bits
         return addr
+
+    @property
+    def addr_highest_bit(self):
+        if self.addr >= 0:
+            return (self.addr >> 15 & 0b1 )
+        return -1
 
     @property
     def address_type(self):
@@ -148,7 +148,7 @@ class KNXSourceAddress(KNXAddress):
 class KNXDestinationAddress(KNXAddress):
     # MMMMMIIISSSSSSSS   M=Main Group, I= Middle Group, S=Subgroup
     _addr_delimiter = '/'
-    _high_order_bits = 11
+    _high_order_bits = 12
     _type = 'destination'
 
     @property
@@ -177,7 +177,10 @@ class DPT(object):
         self.acpi_value = 2
         
     def __len__(self):
-        return struct.calcsize(self.struct_format)
+        slen = struct.calcsize(self.struct_format)
+        if slen == 1:
+            return 2
+        return slen
         
     def __repr__(self):
         return f"{self.name}:{self.value}"
@@ -194,7 +197,7 @@ class DPT(object):
     @property
     def first_two_bits(self):
         # return the first 2 bits fo the value to pack into the preivous octet
-        if self.length == 1:
+        if self.length_in_bits == 1:
             return self.value << 6 & 0b00000011
         return self.value << 8 & 0b0000000011
     
@@ -326,6 +329,11 @@ class APCI(object):
     
     def __init__(self, apci=-1):
         self.apci = apci   # -1 for unitinialized
+
+    def __bool__(self):
+        if self.apci is None or self.apci == -1:
+            return False
+        return True
         
     @property 
     def bits(self):
@@ -345,7 +353,11 @@ class APCI(object):
              
     def __str__(self):
         if self.apci is not None and self.apci != -1:
-            return f"APCI{self.bits}:{self.apci_map[self.apci]}"
+            print ("APCI:", self.apci)
+            if self.apci in self.apci_map:
+                return f"APCI{self.bits}:{self.apci_map[self.apci]}"
+            return f"APCI{self.bits}:UNKNOWN {self.apci}, {self.apci:0x}"
+        # probably ctl data
         return "N/A"
         
     def __repr__(self):
@@ -452,6 +464,12 @@ class KNXControlField(object):
         
 
 class Telegram(object):
+    control_data_map = { 0:"TL_connect",
+                         1:"TL_disconnect",
+                         2:"TL_ACK",
+                         3:"TL_NAK"
+                         }
+
     def __init__(self, packet=None, src=None, dst=None, init=False):
         self.cf = KNXControlField(init=init)
         self.sa = KNXSourceAddress(addr=src)
@@ -467,9 +485,11 @@ class Telegram(object):
         self.pointer = struct.calcsize('BHHBB') -1 # pointer of next byte in packet to read
         # packet should be a bytearray with the guts of the telegram in it
         self.packet = packet
+        self.payload = None   # payload of the telegram, should be a DTP
+        self.control_data = None   # d1 and d0 of a control data payload
+        self.sqn = None
         if packet:
             self.parse_packet_data(packet)
-        self.payload = None   # payload of the telegram, should be a DTP
             
     def __str__(self):
         output = "TELEGRAM["
@@ -486,10 +506,15 @@ class Telegram(object):
             output += f"|hops {self.hop_count}|"
         if self.length:
             output += f"LEN: {self.length}"
+        if self.sqn is not None:
+            output += f"SQN:{self.sqn}|"
         if self.checksum:
             output += f"|cks:0x{self.checksum:02x}|"
-        if self.apci is not None:
+        if self.apci is not None and self.apci:
             output += f"{self.apci}"
+        print ("SELF.CONTROL_DATA:", self.control_data)
+        if self.control_data is not None:
+            output += f"{self.control_data_map[self.control_data]}"
         output += "]\n"
         output += f"CALCULATED CHECKSUM: 0x{self.calculate_packet_checksum():02x}"
         return output
@@ -544,8 +569,13 @@ class Telegram(object):
             #print ("PACKET  :", packet)
             # print ("PAYLOAD1:", payload)
             # print ("PAYLOAD2:", payload_test)
+        else:
+            # control packet just one packet, should be the next to last octet
+            payload = packet[-2]
+            print ("I AM A CTL PACKET OF SOME SORT", payload)
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
+        print ("SELF.CHECKSUM:", self.checksum)
     
     def parse_len(self, len_data):
         # parse address type, hop count, length
@@ -574,21 +604,14 @@ class Telegram(object):
         # D7 P purpose, 0 - "data packet", 1 - "control data"
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
-        control_data_map = { 0:"TL_connect",
-                             1:"TL_disconnect",
-                             2:"TL_ACK",
-                             3:"TL_NAK"
-                             }
-
         purpose = payload_header & 0b10000000
         if purpose:
-            # print ("CONTROL DATA")
-            control_data = payload_header & 0b00000011
+            self.control_data = payload_header & 0b00000011
+
         seq = payload_header & 0b01000000
-        if seq:
+        if seq is not None:
             # read in the SQN
-            sqn = (payload_header >> 2) & 0b00001111
-            # print ("SQN:", sqn)
+            self.sqn = (payload_header >> 2) & 0b00001111
         if self.length == 1:
             # get the last two bits of this octet, assume a 10 bit APCI
             self.apci.add(payload_header & 0b00000011)
@@ -637,32 +660,6 @@ class Telegram(object):
         # get the payload from the dpt
         payload = dpt.payload
         #print ("PAYLOADL:", dpt.payload)
-        """
-        if apci_val < 16:
-            # 4 bit apci, just add the last 6 bits of the dpt value
-            print("DPT last 6 bits:", dpt.value4)
-            payload = (apci_val << 6) + dpt.value4
-            # 4 bit apcis always have len of 1 
-            
-            # construct the 6th octet with address type, use multicast for now, hop count is always 6
-            self.hop_count = 6
-            # use address type of multicast, D7 is 1
-            self.address_type_flag = 1
-            self.octet6 = 0b10000000 + (6 << 4) + 1
-            # first octet of the payload field
-            self.octet7 = apci_val >> 2
-        else:
-            # TODO add bigger APCI support
-            payload = (apci_val << 6) + dpt.value
-            self.length = 4
-            self.hop_count = 6
-            # use address type of multicast, D7 is 1
-            self.address_type_flag = 1
-            self.octet6 = 0b10000000 + (6 << 4) + 1
-            payload = (apci_val << 8) + dpt.value4
-            # first octet of the payload field
-            self.octet7 = apci_val >> 2
-        """
         #print ("SET SELF PAYLOAD")
         self.payload = payload
         #print ("self.payload:", self.payload, type(self.payload))
