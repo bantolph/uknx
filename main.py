@@ -5,7 +5,7 @@ upython 1.19.1
 from machine import Timer
 from machine import Pin
 from machine import UART
-import utime
+import utime as time
 import rp2
 import struct
 import uasyncio as asyncio
@@ -30,12 +30,12 @@ led = Pin(25, Pin.OUT)
 
 class QueuedItem(object):
     def __init__(self, item):
-        self.time_added = utime.time()
+        self.time_added = time.time()
         self.item = item
 
     @property
     def age(self):
-        return utime.time() - self.time_added
+        return time.time() - self.time_added
 
     def __repr__(self):
         return f"{self.item}[{self.age}]"
@@ -51,7 +51,7 @@ class SimpleTemporalQueue(object):
         self.timeout = timeout
 
     def put(self, item):
-        print ("TIME:", utime.time(), len(self))
+        print ("TIME:", time.time(), len(self))
         index = len(self)
         q_item = QueuedItem(item)
         self.maintenance()
@@ -86,6 +86,13 @@ class SimpleTemporalQueue(object):
     def __str__(self):
         return f"Q|{self.name}:({self.max_queue_length}){self.queue}"
 
+
+class KNXConnection(object):
+    def __init__(self, peer):
+        self.sqn = 0
+        self.da = peer   # peer we have the connection with
+        self.age = time.time()
+
     
 class KNXDevice(object):
     # Siemens BCU interface, using asyncio
@@ -106,6 +113,8 @@ class KNXDevice(object):
         self.loop.create_task(self.rx_queue_monitor())
         self.led = led
         print ("self.loop:", self.loop, dir(self.loop))
+        self.connections = []   # list of KNXConnection objects
+
 
     def __str__(self):
         output = f"KNX Device: {self.address} - ["
@@ -132,6 +141,7 @@ class KNXDevice(object):
             print ("CONTROL DATA MANAGMENT TELEGRAM!!!")
         else:
             print ("NORMALISH TELEGRAM FOR ME!!!")
+
     def start(self):
         # start event loop
         self.loop.run_forever()
@@ -198,14 +208,14 @@ class KNXDevice(object):
             # print ("-cmd:", cmd)
             self.uart.write(cmd)
         # read the response
-        utime.sleep_ms(150)
+        time.sleep_ms(150)
         resp = self.read_packet()
         self.debug_resp(resp)
 
     # send U_Reset.request-Service
     def reset_device(self):
         self.uart.write(b'\x01')
-        utime.sleep_ms(50)
+        time.sleep_ms(50)
         rest_indication = self.uart.read(MAX_TELEGRAM_LENGTH)
         print ("RESET INDICATION:", rest_indication)
         if rest_indication == b'\x03':
@@ -216,7 +226,7 @@ class KNXDevice(object):
         # get a status request
         print ("STATUS REQUEST --------")
         self.uart.write(b'\x02')
-        utime.sleep_ms(50)
+        time.sleep_ms(50)
         resp = struct.unpack('B', self.read_packet())[0]
         # print ("RESP:", resp, type(resp))
         if resp == 0b00000111:
@@ -248,7 +258,7 @@ class KNXDevice(object):
         cmd_bytes = struct.pack('>BH', U_SETADDRESS, myaddr)
         self.uart.write(cmd_bytes)
         self.address.set_addr(addr)
-        utime.sleep_ms(250)
+        time.sleep_ms(250)
 
     def read_packet(self):
 
@@ -271,7 +281,7 @@ class KNXDevice(object):
     def get_product_id(self):
         # send TP-UART-ProductID.response Service
         uart0.write(b'\x20')
-        utime.sleep_ms(50)
+        uime.sleep_ms(50)
         prod_id = self.read_packet()
         print ("PROD ID:", prod_id)
         return prod_id
@@ -313,7 +323,7 @@ if not True:
         if knx.receive_queue:
             telegram =knx.recieve_queue.pop(0)
             print (telegram)
-            utime.sleep_ms(100)
+            time.sleep_ms(100)
         if mybytes:
             print ("len:", len(mybytes), mybytes)
             if len(mybytes) == 1:
@@ -326,6 +336,6 @@ if not True:
                 if telegram.sa == 4356:
                     print ("frame:", frame)
                     if mybytes[7] == 129:
-                        utime.sleep_ms(1000)
+                        time.sleep_ms(1000)
                         knx.write_frame(frame)
                     print ("I SEE YOU!!!", mybytes[7])
