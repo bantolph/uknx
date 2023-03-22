@@ -286,26 +286,50 @@ class APCI(object):
     
 
     def __init__(self, apci=-1, bits=-1):
-        self.apci = apci   # -1 for unitinialized
+        self.apci4 = apci   # -1 for unitinialized
+        self.apci10 = apci   # -1 for unitinialized
         self.bits = bits   # -1 unitialized, should be 4 or 10, 0 for ctl 
 
     def __bool__(self):
-        if self.apci is None or self.apci == -1:
+        if self.bits != 4 and self.bits != 10:
             return False
+        if self.bits == 4:
+            if self.apci4 is None or self.apci4 == -1:
+                return False
+            return True
+        elif self.bits == 10:
+            if self.apci10 is None or self.apci10 == -1:
+                return False
         return True
+
+    def parse(self, octet6, octet7):
+        # cacl both 4 and 10 bit apci values from octest 6 and 7 
+        self.apci4 = (octet6 & 0b00000011 ) << 2
+        self.apci4 += octet7 >> 6
+        self.apci10 = (octet6 & 0b00000011 )  << 8
+        self.apci10 += octet7
+
         
     def __str__(self):
-        print (f"[{__name__}] self.apci:", self.apci, type(self.apci))
-        if self.apci != -1 and self.apci != 0:
-            if self.apci in self.apci_map:
-                return f"APCI{self.bits}:{self.apci_map[self.apci]}"
-            return f"APCI{self.bits}:UNKNOWN {self.apci}, {self.apci:0x}"
-        return "N/A"
+        print ("BITS:", self.bits)
+        if self.bits < 0:
+            # assume 4 bit apci
+            bits =4
+            assumed = "?"
+        else:
+            bits = self.bits
+            assumed = ""
+        apci = getattr(self, f'apci{bits}')
+        if apci in self.apci_map:
+            return f"APCI{self.bits}{assumed}:{self.apci_map[apci]}"
+        return f"APCI{self.bits}{assumed}:UNKNOWN {apci}, {apci:0x}"
         
     def __repr__(self):
-        if self.apci in self.apci_map:
-                return f"APCI{self.bits}:{self.apci_map[self.apci]}"
-        return f"APCI:{self.apci}"
+        if self.bits == 4:
+            return f"APCI4:{self.apci4}"
+        if self.bits == 10:
+            return f"APCI10{self.apci10}"
+        return f"APCI4:{self.apci4}:APCI10{self.apci10}"
                  
 
 class KNXControlField(object):
@@ -437,6 +461,7 @@ class Telegram(object):
         # packet should be a bytearray with the guts of the telegram in it
         self.packet = packet
         self.payload = None   # payload of the telegram, should be a DTP
+        self.data_control_flag = -1
         self.control_data = None   # d1 and d0 of a control data payload
         self.sqn = sqn
         self.tpci = 0    # D7 D6 of first payload byte, Transport Layer Control Information
@@ -454,7 +479,41 @@ class Telegram(object):
             # constcut a TPCI with a purpose of control data, sqn prestnt, sqn and ctrol data
             self.payload = struct.pack('>B', ((1 << 7) + (1 << 6) + (self.sqn << 3) + self.control_data))
             
+    @property
+    def numbered(self):
+        # does this telgram care about sqn
+        return self.tpci & 0b01
             
+    @property 
+    def tpdu(self):
+        # TPDU octet 5 d7, and octet 6
+        # print ("TPDU DEBUG: self.address_type_flag: ", self.address_type_flag)
+        # print ("TPDU DEBUG: self.control_data_flag: ", self.control_data_flag)
+        # print ("TPDU DEBUG: self.numbered: ", self.numbered)
+        if self.address_type_flag:
+            # ctl_data flag should be 0
+            if not self.control_data_flag:
+                if self.sqn == 1:
+                    return "T_Data_Tag_Group-PDU"
+                if self.da == 0:
+                    return "T_Data_Broadcast-PDU"
+                if self.da != 0:
+                    return "T_Data_Group-PDU"
+        if not self.data_control_flag and not self.numbered:
+            return "T_Data_Individual-PDU"
+        if not self.data_control_flag == 0 and self.numbered:
+            return "T_Data_Connected-PDU"
+        if self.data_control_flag and not self.numbered and self.control_data == 1:
+            return "T_Connect-PDU"
+        if self.data_control_flag and not self.numbered and self.control_data == 0:
+            return "T_Disconnect-PDU"
+        if self.data_control_flag and self.numbered and self.control_data == 2:
+            return "T_ACK-PDU"
+        if self.data_control_flag and self.numbered and self.control_data == 3:
+            return "T_NAK-PDU"
+
+        return "UNDEF"
+
     @property
     def octet6(self):
         # construct the 6th octet from telegram data
@@ -484,6 +543,7 @@ class Telegram(object):
             output += f"{self.apci}"
         if self.control_data is not None:
             output += f"{self.control_data_map[self.control_data]}"
+        output += f"|{self.tpdu}"
         output += "]\n"
         output += f"CALCULATED CHECKSUM: 0x{self.calculate_packet_checksum():02x}"
         return output
@@ -596,10 +656,11 @@ class Telegram(object):
         # payload header - D6 & D7 are the TCPI
         # PSNNNNCC
         # D7 and D6 are the TPCI
-        # D7 P purpose, 0 - "data packet", 1 - "control data"
+        # D7 control_data_flag purpose, 0 - "data packet", 1 - "control data"
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
         # print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
+        self.control_data_flag = payload_header >> 7
         self.tpci = payload_header >> 6 &0b11
         print (f"[{__name__}] self.tpci:", self.tpci)
         if self.control_data_telegram:
@@ -610,34 +671,30 @@ class Telegram(object):
         if seq is not None:
             # read in the SQN
             self.sqn = (payload_header >> 2) & 0b00001111
-            self.apci.bits = 0
+            #self.apci.bits = 0
+        # calculate 10 and 4 bit acpi for now....
+        self.apci.parse( payload_header,  self.packet[self.pointer])
+        # assume the apci is 4 bits as all of the apci lenght logic i've found doesn't work
+        self.apci.bits = 4
+        # add the payload data, depending on the packet len
+        # base this on the bits and length
+        self.apci_data = self.packet[self.pointer] & 0b00111111
         if self.length == 0:
-            # No APCI present, this is a control packet
-            self.apci.apci = self.control_data
-            print (f"[{__name__}] CONTROL DATA TELEGRAM - control data:", self.control_data)
+            self.payload = None
         elif self.length == 1:
-            # 4 bit APCI
-            # APCI = D1 and D0 of the first Payload octet + D7 and D6 of the second Payload octet
-            #
-            #
-            self.apci.bits = 4
-            # high order bits from this octet
-            self.apci.apci = (payload_header & 0b00000011 ) << 2
-            # low order bits from the next octet
-            self.apci.apci += self.packet[self.pointer] >> 6
-            # the rest of the 6 bits are data
-            self.apci_data = self.packet[self.pointer] & 0b00111111
-            print (f"[{__name__}] 4bit APCI:", self.apci)
-        elif self.length > 1:
-            # 10 bit APCI
-            # APCI = D1 and D0 of the first Payload octet + the entire second Payload octet
-            self.apci.bits = 10
-            print (f"[{__name__}] 10bit APCI:", self.apci)
-            self.apci.apci = (payload_header & 0b00000011 )  << 8
-            print (f"[{__name__}] 10bit APCI ho:", self.apci)
-            self.apci.apci += self.packet[self.pointer]
-            print (f"[{__name__}] 10bit APCI:", self.apci)
+            self.payload == struct.pack('>B',self.apci_data)
+        else:
+            self.payload = bytearray()
+            for i in range(self.pointer, self.pointer + self.length):
+                payload = struct.pack('>B', self.packet[i])
+                print ("PL:", i, payload, type(payload))
+                self.payload.extend(payload)
+        print ("POINTER:", self.pointer)
+        print ("PAYLOAD:", self.payload)
+
+
         
+
         print (f"[{__name__}] APCI:", self.apci)
 
     def add_data_packet(self, dpt, apci='GroupValueWrite'):

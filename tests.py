@@ -5,7 +5,7 @@ upython 1.19.1
 Tests to run with the micropython intepreter
 """
 import uknx
-from test_telegrams_3 import TEST_TELEGRAMS
+from test_telegrams import TEST_TELEGRAMS
 
 def test_KNXSourceAddress():
     print ("TESTING:", test_KNXSourceAddress.__name__ )
