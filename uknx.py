@@ -218,13 +218,13 @@ class DPT(object):
         return struct.pack(self.struct_format, self.value)
             
 
-  
 class DPT_Switch(DPT):
     def __init__(self):
         super().__init__()
         self.id = "1.001"
         self.name = "DPT_Switch"
         self.use = {0:'Off', 1:'On'}
+
 
 class DPT_Value_Length(DPT):
     def __init__(self):
@@ -327,6 +327,7 @@ class APCI(object):
                  0x3F0:"A_FileStream_InfoReport",
                  }
     
+
     def __init__(self, apci=-1):
         self.apci = apci   # -1 for unitinialized
 
@@ -353,7 +354,6 @@ class APCI(object):
              
     def __str__(self):
         if self.apci is not None and self.apci != -1:
-            print ("APCI:", self.apci)
             if self.apci in self.apci_map:
                 return f"APCI{self.bits}:{self.apci_map[self.apci]}"
             return f"APCI{self.bits}:UNKNOWN {self.apci}, {self.apci:0x}"
@@ -428,7 +428,6 @@ class KNXControlField(object):
     def set_repeated(self):
         self.repetition_status = 1
         
-        
     def parse(self, cf):
         # parse control field
         # T0R1PP00   T= Telegram Type, R=Repitition Status, P= Priorty
@@ -470,12 +469,20 @@ class Telegram(object):
                          3:"TL_NAK"
                          }
 
-    def __init__(self, packet=None, src=None, dst=None, init=False):
+    def __init__(self, packet=None, src=None, dst=None, init=False, sqn=0, length=0, control=False):
         self.cf = KNXControlField(init=init)
-        self.sa = KNXSourceAddress(addr=src)
-        self.da = KNXDestinationAddress(addr=dst)
+        if isinstance(src, KNXSourceAddress):
+            self.sa = src
+        else:
+            self.sa = KNXSourceAddress(addr=src)
+        if isinstance(dst, KNXDestinationAddress):
+            self.da = dst
+        elif isinstance(dst, KNXSourceAddress):
+            self.da = KNXDestinationAddress(addr=dst.addr)
+        else:
+            self.da = KNXDestinationAddress(addr=dst)
         self.address_type_flag = None
-        self.length = None
+        self.length = length
         if init:
             self.hop_count = 6
         else:
@@ -487,9 +494,27 @@ class Telegram(object):
         self.packet = packet
         self.payload = None   # payload of the telegram, should be a DTP
         self.control_data = None   # d1 and d0 of a control data payload
-        self.sqn = None
+        self.sqn = sqn
         if packet:
             self.parse_packet_data(packet)
+        if control == "TL_ACK":
+            # make it a TL ACK
+            print ("TL_ACK")
+            self.cf = KNXControlField(init=True)
+            self.cf.set_priority('System')
+            self.hop_count = 6
+            self.length = 0
+            self.address_type_flag = 0
+            self.control_data = 2
+            # constcut a TPCI with a purpose of control data, sqn prestnt, sqn and ctrol data
+            self.payload = struct.pack('>B', ((1 << 7) + (1 << 6) + (self.sqn << 3) + self.control_data))
+            
+            
+    @property
+    def octet6(self):
+        # construct the 6th octet from telegram data
+        # AHHHLLLL  A Address Type, H Hop Count, L length of payload
+        return (self.address_type_flag << 7) + (self.hop_count << 3) + self.length
             
     def __str__(self):
         output = "TELEGRAM["
@@ -512,7 +537,6 @@ class Telegram(object):
             output += f"|cks:0x{self.checksum:02x}|"
         if self.apci is not None and self.apci:
             output += f"{self.apci}"
-        print ("SELF.CONTROL_DATA:", self.control_data)
         if self.control_data is not None:
             output += f"{self.control_data_map[self.control_data]}"
         output += "]\n"
@@ -552,7 +576,12 @@ class Telegram(object):
     def parse_packet_data(self, packet):
         # parse packet into the telegram
         # get header
-        data = struct.unpack('>BHHBB', packet)
+        try:
+            data = struct.unpack('>BHHBB', packet)
+        except:
+            # print ("NOT A TELEGRAM: |||", packet, "|||")
+            # this was probaably a uart response
+            return struct.unpack('>B', packet)
         #self.parse_cf(data[0])
         self.cf = KNXControlField(data[0])
         #self.parse_sa(data[1])
@@ -563,6 +592,20 @@ class Telegram(object):
         self.parse_payload(data[4])
         self.pointer = struct.calcsize('>BHHBB')
         # we should have the length of the payload now, so extract it
+        # iterate over the length of the payload and make a bytearay for it
+        self.payload = bytearray()
+        print ("my lenght kkkkkkkkkiz: ", self.length)
+        if self.length == 0:
+            eop = 8
+        else:
+            eop = 7 + self.length
+
+        for i in range(7, eop):
+            mybyte = struct.pack('>B', packet[i])
+            print ("I:", i, mybyte)
+            self.payload.extend(struct.pack('>B', packet[i]))
+        print ("PPPPPPPPPPPPPPPPPP:", self.payload)
+        """
         if self.length:
             payload = packet[7:-1]   # payload is the rest of the octets except for the checksum
             payload_test = packet[7:7+self.length]
@@ -573,9 +616,11 @@ class Telegram(object):
             # control packet just one packet, should be the next to last octet
             payload = packet[-2]
             print ("I AM A CTL PACKET OF SOME SORT", payload)
+        self.payload = payload
+        """
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
-        print ("SELF.CHECKSUM:", self.checksum)
+        # print ("SELF.CHECKSUM:", self.checksum)
     
     def parse_len(self, len_data):
         # parse address type, hop count, length
@@ -604,19 +649,23 @@ class Telegram(object):
         # D7 P purpose, 0 - "data packet", 1 - "control data"
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
+        # print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
         purpose = payload_header & 0b10000000
         if purpose:
+            # print ("I HAVE A SPECIAL PURPOSE:", purpose)
             self.control_data = payload_header & 0b00000011
+            # print ("I HAVE A SPECIAL PURPOSE, my control data is:", self.control_data)
+
 
         seq = payload_header & 0b01000000
         if seq is not None:
             # read in the SQN
             self.sqn = (payload_header >> 2) & 0b00001111
-        if self.length == 1:
+        if self.length == 1 and not purpose:
             # get the last two bits of this octet, assume a 10 bit APCI
             self.apci.add(payload_header & 0b00000011)
             self.apci_get_4bit()   # Pull the APCI from the next octet, plus the data
-        elif self.length > 2:
+        elif self.length > 2 and not purpose:
              # get the last two bits of this octet, assume a 10 bit APCI
             self.apci.add(payload_header & 0b00000011)
             self.apci_get_next_byte()   # Pull the APCI from the next octet and set the pointer
@@ -654,19 +703,24 @@ class Telegram(object):
         self.hop_count = 6
         # use address type of multicast, D7 is 1
         self.address_type_flag = 1
-        self.octet6 = 0b10000000 + (6 << 4) + 1        
+        #self.octet6 = 0b10000000 + (6 << 4) + 1        
         # first octet of the payload field will be retrieved from dpt.payload
         #self.octet7 = apci_val >> 2
         # get the payload from the dpt
         payload = dpt.payload
+        # get the length from the dpt
+        self.length = len(dpt)
         #print ("PAYLOADL:", dpt.payload)
         #print ("SET SELF PAYLOAD")
         self.payload = payload
         #print ("self.payload:", self.payload, type(self.payload))
+
         
     def frame(self):
         # construct a telegram frame to be sent
         # pack the CF,SA,DA, octet6 and payload
+        print ("OCTET6:", self.octet6)
+        print ("PAYLOAD:", self.payload)
         frame_header = struct.pack('>BHHB', self.cf, self.sa, self.da, self.octet6)
         frame = bytearray(frame_header)
         frame.extend(self.payload)
