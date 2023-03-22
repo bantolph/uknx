@@ -5,7 +5,7 @@ upython 1.19.1
 Tests to run with the micropython intepreter
 """
 import uknx
-from test_telegrams import TEST_TELEGRAMS
+from test_telegrams_3 import TEST_TELEGRAMS
 
 def test_KNXSourceAddress():
     print ("TESTING:", test_KNXSourceAddress.__name__ )
@@ -89,15 +89,21 @@ def test_DPT_Switch():
 
 def test_Telegram():
     print ("TESTING:", test_Telegram.__name__ )
+    func_name = test_Telegram.__name__
+    print (f"[{func_name}] B0 11 0D 11 03 61 43 00 63 :L_Data system from 1.1.13 to 1.1.3 hops: 06 T_Data_Connected serno:00 A_DeviceDescriptor_Read Type:00")
+    print (f"[{func_name}] B0 11 03 11 0D 63 43 40 07 B0 96 :L_Data system from 1.1.3 to 1.1.13 hops: 06 T_Data_Connected serno:00 A_DeviceDescriptor_Response Type:00  Descriptor: 07B0 ")
+    print (f"[{func_name}] 0   1  2  3  4  5  6  7  8  9 10")
+    print (f"[{func_name}] CC SA SA DA DA LS P0 P1 P2 P3 CK")
     for telegram in TEST_TELEGRAMS:
-        print ("TELE:", telegram)
+        print (f"[{func_name}]TELE:", telegram)
         test_telegram = uknx.Telegram(packet=telegram)
-        print (test_telegram)
+        print (f"[{func_name}]", test_telegram)
+        print ("\n\n\n")
 
 
-test_KNXSourceAddress()
-test_KNXDestinationAddress()
-test_DPT_Switch()
+#test_KNXSourceAddress()
+#test_KNXDestinationAddress()
+#test_DPT_Switch()
 test_Telegram()
 
 

@@ -236,131 +236,75 @@ class DPT_Value_Length(DPT):
         
     
 class APCI(object):
-    apci_map = { 0:'GroupValueRead',
+    apci_map = { 0:'GroupValueRead',  # Multicast
                  1:'GroupValueResponse',
                  2:'GroupValueWrite',
-                 3:'IndividualAddrWrite',
-                 4:'IndividualAddrRequest',
-                 5:'IndividualAddrResponse',
-                 6:'AdcRead',
+                 3:'IndividualAddrWrite',   # Broadcast
+                 4:'IndividualAddrRequest',   
+                 5:'IndividualAddrResponse',  
+                 6:'AdcRead',   # Unicast, connection oriented
                  7:'AdcResponse',
                  8:'MemoryRead',
                  9:'MemoryResponse',
                  10:'MemoryWrite',
-                 11:'UserMessage',
-                 12:'MarkVersionRead',
-                 13:'MarkVersionResponse',
-                 14:'Restart',
-                 15:'Escape',
-                 0xFFFF:"A_Unknown",
-                 0x000:"A_GroupValue_Read",
-                 0x040:"A_GroupValue_Response",
-                 0x080:"A_GroupValue_Write",
-                 0x0C0:"A_IndividualAddress_Write",
-                 0x100:"A_IndividualAddress_Read",
-                 0x140:"A_IndividualAddress_Response",
-                 0x180:"A_ADC_Read",
-                 0x1C0:"A_ADC_Response",
-                 0x1C8:"A_SystemNetworkParameter_Read",
-                 0x1C9:"A_SystemNetworkParameter_Response",
-                 0x1CA:"A_SystemNetworkParameter_Write",
-                 0x1CB:"//",
-                 0x200:"A_Memory_Read",
-                 0x240:"A_Memory_Response",
-                 0x280:"A_Memory_Write",
-                 0x2C0:"A_UserMemory_Read",
-                 0x2C1:"A_UserMemory_Response",
-                 0x2C2:"A_UserMemory_Write",
-                 0x2C4:"A_UserMemoryBit_Write",
-                 0x2C5:"A_UserManufacturerInfo_Read",
-                 0x2C6:"A_UserManufacturerInfo_Response",
-                 0x2C7:"A_FunctionPropertyCommand",
-                 0x2C8:"A_FunctionPropertyState_Read",
-                 0x2C9:"A_FunctionPropertyState_Response",
-                 0x2CA:"//",
-                 0x2F8:"//",
-                 0x300:"A_DeviceDescriptor_Read",
-                 0x340:"A_DeviceDescriptor_Response",
-                 0x380:"A_Restart",
-                 0x3A0:"A_Restart_Response",
-                 0x3C0:"A_Open_Routing_Table_Request",
-                 0x3C1:"A_Read_Routing_Table_Request",
-                 0x3C2:"A_Read_Routing_Table_Response",
-                 0x3C3:"A_Write_Routing_Table_Request",
-                 0x3C8:"A_Read_Router_Memory_Request",
-                 0x3C9:"A_Read_Router_Memory_Response",
-                 0x3CA:"A_Write_Router_Memory_Request",
-                 0x3CD:"A_Read_Router_Status_Request",
-                 0x3CE:"A_Read_Router_Status_Response",
-                 0x3CF:"A_Write_Router_Status_Request",
-                 0x3D0:"A_MemoryBit_Write",
-                 0x3D1:"A_Authorize_Request",
-                 0x3D2:"A_Authorize_Response",
-                 0x3D3:"A_Key_Write",
-                 0x3D4:"A_Key_Response",
-                 0x3D5:"A_PropertyValue_Read",
-                 0x3D6:"A_PropertyValue_Response",
-                 0x3D7:"A_PropertyValue_Write",
-                 0x3D8:"A_PropertyDescription_Read",
-                 0x3D9:"A_PropertyDescription_Response",
-                 0x3DA:"A_NetworkParameter_Read",
-                 0x3DB:"A_NetworkParameter_Response",
-                 0x3DC:"A_IndividualAddressSerialNumber_Read",
-                 0x3DD:"A_IndividualAddressSerialNumber_Response",
-                 0x3DE:"A_IndividualAddressSerialNumber_Write",
-                 0x3DF:"A_ServiceInformation_Indication_Write",
-                 0x3E0:"A_DomainAddress_Write",
-                 0x3E1:"A_DomainAddress_Read",
-                 0x3E2:"A_DomainAddress_Response",
-                 0x3E3:"A_DomainAddressSelective_Read",
-                 0x3E4:"A_NetworkParameter_Write",
-                 0x3E5:"A_Link_Read",
-                 0x3E6:"A_Link_Response",
-                 0x3E7:"A_Link_Write",
-                 0x3E8:"A_GroupPropValue_Read",
-                 0x3E9:"A_GroupPropValue_Response",
-                 0x3EA:"A_GroupPropValue_Write",
-                 0x3EB:"A_GroupPropValue_InfoReport",
-                 0x3EC:"A_DomainAddressSerialNumber_Read",
-                 0x3ED:"A_DomainAddressSerialNumber_Response",
-                 0x3EE:"A_DomainAddressSerialNumber_Write",
-                 0x3F0:"A_FileStream_InfoReport",
+                 11:'UserMessage',  # User defined
+                 12:'DeviceDescriptorRead',  # P2P Connection less
+                 13:'DeviceDescriptorResponse',
+                 14:'Restart',   # P2p, connection oriented
+                 15:'Escape',    # P2P, connetinoliess
+                 0b0011000000: 'PysicalAddressSet',   # 192
+                 0b0100000000: 'PysicalAddressRequest',  # 256
+                 0b0101000000: 'PhysicalAddressResponse', 
+                 0b1111011100: 'PhysAdresseAnfordernSeriennummer',
+                 0b1111011101: 'PhysAdresseAntworten',
+                 0b1111011110: 'PhysAdresseSetzenSeriennummer',
+                 0b1111011111: 'ApplikationsStatusAnfordern',
+                 0b1111100000: 'SystemIDSetzen',
+                 0b1111100001: 'SystemIDAnforder',
+                 0b1111100010: 'SystemIDAntworten',
+                 0b1111100001: 'SystemIDAnfordern',
+                 0b1111010101: 'EigenschaftenWertAnfordernSystemID',
+                 0b1111010110: 'EigenschaftenWertAntworten',
+                 0b1111010111: 'EigenschaftenWertSendenSystemID)',
+                 0b1111011000: 'EigenschaftenBeschreibungAnfordern',
+                 0b1111011001: 'EigenschaftenBeschreibungAntworten',
+                 0b1011000000: 'SpeicherinhaltAnfordern',
+                 0b1011000001: 'SpeicherinhaltAntworten',
+                 0b1011000010: 'SpeicherinhaltSenden',
+                 0b1011000011: 'SpeicherinhaltSenden',
+                 0b1011000100: 'HerstellerinfoAnfordern',
+                 0b1011000001: 'HerstellerinfoAntworten',
+                 0b1100000000: 'MaskenversionAnfordern',
+                 0b1101000000: 'MaskenversionAntworten',
+                 0b1110000000: 'Reset',
+                 0b1111010000: 'SpeicherinhaltSenden',
+                 0b1111010001: 'ZugriffsberechtigungAnfordern',
+                 0b1111010010: 'ZugriffsberechtigungAntworten',
+                 0b1111010011: 'SchlüsselFürZugriffsberechtigungSetzen',
+                 0b1111010100: 'ZugriffsberechtigungSetzenAntworten',
                  }
     
 
-    def __init__(self, apci=-1):
+    def __init__(self, apci=-1, bits=-1):
         self.apci = apci   # -1 for unitinialized
+        self.bits = bits   # -1 unitialized, should be 4 or 10, 0 for ctl 
 
     def __bool__(self):
         if self.apci is None or self.apci == -1:
             return False
         return True
         
-    @property 
-    def bits(self):
-        # return 10 or 4 bits
-        if self.apci > 16:
-            return 10
-        return 4
-        
-    def add(self, other):
-        # print ("APCI Add other:", other, self.apci, self.bits)
-        if self.apci == -1:
-            # shift bits 2 places right of the number of bits (2 for a 4 bit, 8 for a 10 bit apci)
-            self.apci = other << (self.bits - 2)
-        else:
-            self.apci += other
-        return self.apci
-             
     def __str__(self):
-        if self.apci is not None and self.apci != -1:
+        print (f"[{__name__}] self.apci:", self.apci, type(self.apci))
+        if self.apci != -1 and self.apci != 0:
             if self.apci in self.apci_map:
                 return f"APCI{self.bits}:{self.apci_map[self.apci]}"
             return f"APCI{self.bits}:UNKNOWN {self.apci}, {self.apci:0x}"
-        # probably ctl data
         return "N/A"
         
     def __repr__(self):
+        if self.apci in self.apci_map:
+                return f"APCI{self.bits}:{self.apci_map[self.apci]}"
         return f"APCI:{self.apci}"
                  
 
@@ -495,11 +439,12 @@ class Telegram(object):
         self.payload = None   # payload of the telegram, should be a DTP
         self.control_data = None   # d1 and d0 of a control data payload
         self.sqn = sqn
+        self.tpci = 0    # D7 D6 of first payload byte, Transport Layer Control Information
         if packet:
             self.parse_packet_data(packet)
         if control == "TL_ACK":
             # make it a TL ACK
-            print ("TL_ACK")
+            print (f"[{__name__}] TL_ACK")
             self.cf = KNXControlField(init=True)
             self.cf.set_priority('System')
             self.hop_count = 6
@@ -574,6 +519,7 @@ class Telegram(object):
         return 0
                        
     def parse_packet_data(self, packet):
+        print ("PAKCET:", packet, len(packet))
         # parse packet into the telegram
         # get header
         try:
@@ -590,34 +536,28 @@ class Telegram(object):
         self.da.set_addr(data[2])
         self.parse_len(data[3])
         self.parse_payload(data[4])
-        self.pointer = struct.calcsize('>BHHBB')
+        self.pointer = struct.calcsize('>BHHBB') - 1 # subtract 1 for index of 0
         # we should have the length of the payload now, so extract it
         # iterate over the length of the payload and make a bytearay for it
         self.payload = bytearray()
-        print ("my lenght kkkkkkkkkiz: ", self.length)
+        print (f"[{__name__}] self.length:", self.length)
+        print (f"[{__name__}] self.pointer:", self.pointer)
+        print (f"[{__name__}] len(packet):", len(packet))
         if self.length == 0:
-            eop = 8
+            # numbers here are the index in the packet startin a 0
+            # just get the next byte, should be the last
+            eop = self.pointer + 1
         else:
-            eop = 7 + self.length
+            print ("LLLL", len(self.packet))
+            eop = self.pointer + self.length + 1
 
-        for i in range(7, eop):
+        print (f"[{__name__}] eop:", eop)
+        for i in range(self.pointer, eop):
+            print (f"[{__name__}] packet i:", i)
             mybyte = struct.pack('>B', packet[i])
-            print ("I:", i, mybyte)
+            print (f"[{__name__}] payload byte i:", i, mybyte)
             self.payload.extend(struct.pack('>B', packet[i]))
-        print ("PPPPPPPPPPPPPPPPPP:", self.payload)
-        """
-        if self.length:
-            payload = packet[7:-1]   # payload is the rest of the octets except for the checksum
-            payload_test = packet[7:7+self.length]
-            #print ("PACKET  :", packet)
-            # print ("PAYLOAD1:", payload)
-            # print ("PAYLOAD2:", payload_test)
-        else:
-            # control packet just one packet, should be the next to last octet
-            payload = packet[-2]
-            print ("I AM A CTL PACKET OF SOME SORT", payload)
-        self.payload = payload
-        """
+        print (f"[{__name__}] PAYLOAD:", self.payload)
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
         # print ("SELF.CHECKSUM:", self.checksum)
@@ -642,48 +582,63 @@ class Telegram(object):
                 return "Broadcast"
         return "ILLEGAL"      
 
+    @property 
+    def data_packet(self):
+        if not self.tpci >> 1:
+            return True
+        return False
+
+    @property 
+    def control_data_telegram(self):
+        return not self.data_packet
 
     def parse_payload(self, payload_header):
         # payload header - D6 & D7 are the TCPI
         # PSNNNNCC
+        # D7 and D6 are the TPCI
         # D7 P purpose, 0 - "data packet", 1 - "control data"
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
         # print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
-        purpose = payload_header & 0b10000000
-        if purpose:
+        self.tpci = payload_header >> 6 &0b11
+        print (f"[{__name__}] self.tpci:", self.tpci)
+        if self.control_data_telegram:
             # print ("I HAVE A SPECIAL PURPOSE:", purpose)
             self.control_data = payload_header & 0b00000011
-            # print ("I HAVE A SPECIAL PURPOSE, my control data is:", self.control_data)
-
 
         seq = payload_header & 0b01000000
         if seq is not None:
             # read in the SQN
             self.sqn = (payload_header >> 2) & 0b00001111
-        if self.length == 1 and not purpose:
-            # get the last two bits of this octet, assume a 10 bit APCI
-            self.apci.add(payload_header & 0b00000011)
-            self.apci_get_4bit()   # Pull the APCI from the next octet, plus the data
-        elif self.length > 2 and not purpose:
-             # get the last two bits of this octet, assume a 10 bit APCI
-            self.apci.add(payload_header & 0b00000011)
-            self.apci_get_next_byte()   # Pull the APCI from the next octet and set the pointer
-
-
-    def apci_get_next_byte(self):
-        # get the next byte from the pointer
-        self.apci.add(self.packet[self.pointer])
-        # increment pointer in the packet
-        self.pointer += 1
-
-
-    def apci_get_4bit(self):
-        # get the d7 and d6 which are the last two bits of the APCI
-        self.apci.add((self.packet[self.pointer] & 0b11000000) >> 6)
-        self.apci_data = self.packet[self.pointer] & 0b00111111
-        #print (f"4 BIT APCI DATA 6 bits of data: {self.apci_data}  {self.apci_data:02x} {self.apci_data:>06b}")
-
+            self.apci.bits = 0
+        if self.length == 0:
+            # No APCI present, this is a control packet
+            self.apci.apci = self.control_data
+            print (f"[{__name__}] CONTROL DATA TELEGRAM - control data:", self.control_data)
+        elif self.length == 1:
+            # 4 bit APCI
+            # APCI = D1 and D0 of the first Payload octet + D7 and D6 of the second Payload octet
+            #
+            #
+            self.apci.bits = 4
+            # high order bits from this octet
+            self.apci.apci = (payload_header & 0b00000011 ) << 2
+            # low order bits from the next octet
+            self.apci.apci += self.packet[self.pointer] >> 6
+            # the rest of the 6 bits are data
+            self.apci_data = self.packet[self.pointer] & 0b00111111
+            print (f"[{__name__}] 4bit APCI:", self.apci)
+        elif self.length > 1:
+            # 10 bit APCI
+            # APCI = D1 and D0 of the first Payload octet + the entire second Payload octet
+            self.apci.bits = 10
+            print (f"[{__name__}] 10bit APCI:", self.apci)
+            self.apci.apci = (payload_header & 0b00000011 )  << 8
+            print (f"[{__name__}] 10bit APCI ho:", self.apci)
+            self.apci.apci += self.packet[self.pointer]
+            print (f"[{__name__}] 10bit APCI:", self.apci)
+        
+        print (f"[{__name__}] APCI:", self.apci)
 
     def add_data_packet(self, dpt, apci='GroupValueWrite'):
         # dpt should be a DPT class of some sort
