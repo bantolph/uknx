@@ -3,17 +3,27 @@ KNX
 upython 1.19.1
 __ver__ 0.01
 """
-from machine import Timer
-from machine import Pin
-from machine import UART
-import utime as time
-import rp2
 import struct
+import time
 import uasyncio as asyncio
 from uknx import KNXSourceAddress
 from uknx import KNXDestinationAddress
 from uknx import Telegram
-from uknx import DPT_Switch
+from dpt import PDU_DeviceDescriptor
+
+class Pin(object):
+    OUT = 0
+    IN = 1
+
+    def __init__(self, pin, pin_type):
+        # fake Pin object
+        pass
+    def on(self):
+        return True
+    def off(self):
+        return True
+    def toggle(self):
+        return True
 
 MAX_TELEGRAM_LENGTH=137
 
@@ -26,7 +36,9 @@ U_L_DATACONTINUE = 0x81  # DATASTART plus index
 U_L_DATAEND = 0x40  # + length, min of 7
 
 print ("BEGIN...")
-uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
+#uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
+# socat -d -d pty,raw,echo=0 pty,raw,echo=0 
+uart0 = open('/dev/pts/8', 'r')
 led = Pin(25, Pin.OUT)
 
 class QueuedItem(object):
@@ -100,7 +112,7 @@ class KNXConnection(object):
         self.da = peer   # peer we have the connection with
         self.sa = sa
         self.age = time.time()
-        self.action = action   # action to take on this packet  ACK, NAK 
+        self.action = getattr(self, action)()   # action to take on this packet  ACK, NAK 
         self.last_action_uart = False   # did the last transmit get OK'd by the UART
 
     def __str__(self):
@@ -112,19 +124,33 @@ class KNXConnection(object):
 
     def __eq__(self, other):
         return self.da == other.da
-    
+
     def ack(self):
         # return an ack Telegram
         ack = Telegram(src=self.sa, dst=self.da, control="TL_ACK")
         return ack.frame()
 
-    def A_DeviceDescriptor_Response(self):
-        resp = Telegram(src=self.sa, dst=self.da, apci='A_DeviceDescriptor_Response')
+    def A_DeviceDescriptor_Read(self):
+        # need to craft response
+        resp = Telegram(src=self.sa, dst=self.da,
+                        init=True,
+                        sqn=self.sqn,
+                        apci='A_DeviceDescriptor_Response')
+        pdu = PDU_DeviceDescriptor(value=1968)
+        print ("PDU:", pdu)
+        resp.add_data_packet(pdu, apci='A_DeviceDescriptor_Response')
+        resp.set_unicast()
+        resp.set_priority('system')
+        resp.cf.set_standard()
+
+        print ("----------------RESPONSE")
         print (resp)
+        print (resp.frame())
+        print ("----------------END RESPONSE")
 
         return resp.frame()
 
-    
+
 class KNXDevice(object):
     # Siemens BCU interface, using asyncio
     def __init__(self, uart, address=None, led=led, timeout=1000):
@@ -219,6 +245,9 @@ class KNXDevice(object):
             self.tx_queue.put(csm)
         else:
             print ("NORMALISH TELEGRAM FOR ME!!!")
+            if telegram.apci.name == 'A_DeviceDescriptor_Read':
+                print ("HERES MY DD BITCH")
+                csm = KNXConnection(telegram.sa, sa=self.address, action=telegram.apci.name)
 
     def start(self):
         # start event loop
@@ -277,9 +306,15 @@ class KNXDevice(object):
 
     async def _recv(self):
         print ("_recv KNX READER STARTING", self.uart)
+        debug = True
         while True:
-            res = await self.sreader.read(MAX_TELEGRAM_LENGTH)
+            res = await self.sreader.readline()
+            print ("RES:", res)
+            if debug:
+                res = res[1:-1]
+            print ("RES:", res)
             telegram = Telegram(packet=res)
+            print (telegram)
             # check if we are interested in the telegram
             if self.interesed_in_telegram(telegram):
                 print ("RX:", telegram)
@@ -417,12 +452,13 @@ class KNXDevice(object):
 
 # KNX Device
 knx = KNXDevice(uart0)
-knx.status_request()
+#knx.status_request()
 MYKNXADDR="1.1.26"
-knx.set_knx_address(MYKNXADDR)
-knx.status_request()
+#knx.set_knx_address(MYKNXADDR)
+#knx.status_request()
 #knx.add_group('0/0/1')
 print ("KNX:", knx)
+knx.address = KNXSourceAddress(addr="1.1.3")
 
 # make a telegram
 #mytelegram = Telegram(src=MYKNXADDR, dst="0.0.1", init=True)

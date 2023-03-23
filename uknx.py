@@ -30,9 +30,14 @@ class KNXAddress(object):
         else:
             self.addr = -1  # integer of address
         self.level = 3   # KNX addressing levels,2 or 3
+        self.unicast = False   # for DA, ignored for SA
 
     def __str__(self):
-        output = f"{self.addr_high}{self._addr_delimiter}{self.addr_middle}{self._addr_delimiter}{self.addr_low}"
+        if self.unicast:
+            addr_delimiter = '.'
+        else:
+            addr_delimiter = self._addr_delimiter
+        output = f"{self.addr_high}{addr_delimiter}{self.addr_middle}{addr_delimiter}{self.addr_low}"
         return output
 
     def __repr__(self):
@@ -58,6 +63,7 @@ class KNXAddress(object):
         if isinstance(other, int):
             return self.addr == other 
         return self.addr == other.addr
+
 
     def set_addr(self, addr):
         # print ("set_addr....", addr)
@@ -163,94 +169,24 @@ class KNXDestinationAddress(KNXAddress):
     def subgroup(self):
         return self.addr_low
 
-
-class DPT(object):
-    
-    def __init__(self, value=0):
-        self.id = "0.000"
-        self.name = None
-        self.encoding = "b"
-        self.value = value
-        self.use = {}
-        self.struct_format = '>B'
-        self.length_in_bits = 1
-        self.acpi_value = 2
-        
-    def __len__(self):
-        slen = struct.calcsize(self.struct_format)
-        if slen == 1:
-            return 2
-        return slen
-        
-    def __repr__(self):
-        return f"{self.name}:{self.value}"
-    
-    def set(self, state):
-        rev_map = { value.upper():key for key,value in self.use.items()}
-        self.value = rev_map[state.upper()]
-        
-    @property
-    def value4(self):
-        # return the last 6 bits of the value for use wiht a 4 bit acpi
-        return self.value & 0b00111111
-    
-    @property
-    def first_two_bits(self):
-        # return the first 2 bits fo the value to pack into the preivous octet
-        if self.length_in_bits == 1:
-            return self.value << 6 & 0b00000011
-        return self.value << 8 & 0b0000000011
-    
-    @property
-    def payload(self):
-        # return the rest of the payload as a bytearray
-        if self.length_in_bits <= 6:
-            # we only have two payload packet, encode the last two bits of the apci value
-            # and add the data
-            myformat = ''
-            if self.struct_format[0] == '>':
-                myformat = '>B' + self.struct_format[1:]
-            else:
-                myformat = 'B' + self.struct_format
-            return struct.pack(myformat, self.acpi_value >> 2, ((self.acpi_value << 6) + self.value))
-        # return the acpi value as two bytes, and then the data after that
-        # TODO
-        return struct.pack(self.struct_format, self.value)
-            
-
-class DPT_Switch(DPT):
-    def __init__(self):
-        super().__init__()
-        self.id = "1.001"
-        self.name = "DPT_Switch"
-        self.use = {0:'Off', 1:'On'}
-
-
-class DPT_Value_Length(DPT):
-    def __init__(self):
-        super().__init__()
-        self.id = "14.039"
-        self.name = "DPT_Value_Length"
-        self.struct_format = '>f'
-        self.length_in_bits = 32
         
     
 class APCI(object):
-    apci_map = { 0:'GroupValueRead',  # Multicast
-                 1:'GroupValueResponse',
-                 2:'GroupValueWrite',
-                 3:'IndividualAddrWrite',   # Broadcast
-                 4:'IndividualAddrRequest',   
-                 5:'IndividualAddrResponse',  
-                 6:'AdcRead',   # Unicast, connection oriented
-                 7:'AdcResponse',
-                 8:'MemoryRead',
-                 9:'MemoryResponse',
-                 10:'MemoryWrite',
-                 11:'UserMessage',  # User defined
-                 12:'DeviceDescriptorRead',  # P2P Connection less
-                 13:'DeviceDescriptorResponse',
-                 14:'Restart',   # P2p, connection oriented
+    apci_map = { 0:'A_GroupValue_Read',  # Multicast
+                 1:'A_GroupValue_Response',
+                 2:'A_GroupValue_Write',
+                 3:'A_IndividualAddress_Write',   # Broadcast
+                 4:'A_IndividualAddress_Read',   
+                 5:'A_IndividualAddress_Response',  
+                 6:'A_ADC_Read',   # Unicast, connection oriented
+                 7:'A_ADC_Response',
+                 8:'A_Memory_Read',
+                 9:'A_Memory_Response',
+                 10:'A_Memory_Write',
+                 11:'A_User_Message',  # User defined
+                 12:'A_DeviceDescriptor_Read',  # P2P Connection less
+                 13:'A_DeviceDescriptor_Response',
+                 14:'A_Restart',   # P2p, connection oriented
                  15:'Escape',    # P2P, connetinoliess
                  0b0011000000: 'PysicalAddressSet',   # 192
                  0b0100000000: 'PysicalAddressRequest',  # 256
@@ -260,12 +196,12 @@ class APCI(object):
                  0b1111011110: 'PhysAdresseSetzenSeriennummer',
                  0b1111011111: 'ApplikationsStatusAnfordern',
                  0b1111100000: 'SystemIDSetzen',
-                 0b1111100001: 'SystemIDAnforder',
+                 0b1111100001: 'A_DomainAddress_Read',  # 0x3E1, 993
                  0b1111100010: 'SystemIDAntworten',
-                 0b1111100001: 'SystemIDAnfordern',
-                 0b1111010101: 'EigenschaftenWertAnfordernSystemID',
-                 0b1111010110: 'EigenschaftenWertAntworten',
-                 0b1111010111: 'EigenschaftenWertSendenSystemID)',
+                 # 0b1111100001: 'SystemIDAnfordern',
+                 0b1111010101: 'A_PropertyValue_Read', # 0x3D5, 981
+                 0b1111010110: 'A_PropertyValue_Response',  # 0x3D6, 982
+                 0b1111010111: 'A_PropertyValue_Write',  # 0x3D7, 983
                  0b1111011000: 'EigenschaftenBeschreibungAnfordern',
                  0b1111011001: 'EigenschaftenBeschreibungAntworten',
                  0b1011000000: 'SpeicherinhaltAnfordern',
@@ -285,10 +221,33 @@ class APCI(object):
                  }
     
 
-    def __init__(self, apci=-1, bits=-1):
+    def __init__(self, apci=-1, bits=-1, name=None):
         self.apci4 = apci   # -1 for unitinialized
         self.apci10 = apci   # -1 for unitinialized
         self.bits = bits   # -1 unitialized, should be 4 or 10, 0 for ctl 
+        self.payload = None   # should be a DPT class or None
+        if name:
+            print ("_____APCI:", name)
+            # set APCI stuff based on name
+            rev_map = { value.upper():key for key,value in self.apci_map.items()}
+            if name.upper() in rev_map:
+                val = rev_map[name.upper()]
+                self.bits = 4
+                self.apci4 = val
+                if val > 15:
+                    self.bits = 10
+                    self.apci10 = val
+
+    @property
+    def value(self):
+        if self.bits == 4:
+            return self.apci4
+        if self.bits == 10:
+            return self.apci10
+        return -1
+
+    def add_payload(self, dpt):
+        self.payload = dpt
 
     def __bool__(self):
         if self.bits != 4 and self.bits != 10:
@@ -309,6 +268,14 @@ class APCI(object):
         self.apci10 = (octet6 & 0b00000011 )  << 8
         self.apci10 += octet7
 
+    @property
+    def name(self):
+        if self.bits == 4 and self.apci4 in self.apci_map:
+            return self.apci_map[self.apci4]
+        if self.bits == 10 and self.apci10 in self.apci_map:
+            return self.apci_map[self.apci10]
+        return "UNKNOWN"
+
         
     def __str__(self):
         print ("BITS:", self.bits)
@@ -326,9 +293,9 @@ class APCI(object):
         
     def __repr__(self):
         if self.bits == 4:
-            return f"APCI4:{self.apci4}"
+            return f"{self.apci4}"
         if self.bits == 10:
-            return f"APCI10{self.apci10}"
+            return f"{self.apci10}"
         return f"APCI4:{self.apci4}:APCI10{self.apci10}"
                  
 
@@ -358,6 +325,7 @@ class KNXControlField(object):
             self.cf_from_parts()
             
     def __int__(self):
+        self.cf_from_parts()
         return self.cf
             
     def __str__(self):
@@ -437,7 +405,7 @@ class Telegram(object):
                          3:"TL_NAK"
                          }
 
-    def __init__(self, packet=None, src=None, dst=None, init=False, sqn=0, length=0, control=False):
+    def __init__(self, packet=None, src=None, dst=None, init=False, sqn=-1, length=0, control=False, apci=None):
         self.cf = KNXControlField(init=init)
         if isinstance(src, KNXSourceAddress):
             self.sa = src
@@ -456,15 +424,19 @@ class Telegram(object):
         else:
             self.hop_count = None
         self.checksum = None
-        self.apci = APCI()
+        self.apci = APCI(name=apci)
         self.pointer = struct.calcsize('BHHBB') -1 # pointer of next byte in packet to read
         # packet should be a bytearray with the guts of the telegram in it
         self.packet = packet
         self.payload = None   # payload of the telegram, should be a DTP
         self.data_control_flag = -1
         self.control_data = None   # d1 and d0 of a control data payload
-        self.sqn = sqn
         self.tpci = 0    # D7 D6 of first payload byte, Transport Layer Control Information
+        if sqn == -1:   # sqn not important, set it to 0
+            self.sqn = 0
+        else:
+            self.sqn = sqn
+            self.set_numbered()
         if packet:
             self.parse_packet_data(packet)
         if control == "TL_ACK":
@@ -483,34 +455,57 @@ class Telegram(object):
     def numbered(self):
         # does this telgram care about sqn
         return self.tpci & 0b01
+
+    def set_numbered(self):
+        # this telegram cares about squence numbers
+        self.tpci = self.tpci ^ 0b01
+        #tpci = self.tpci
+        #self.tpci = tpci  ^ 0b01
+
+    def set_priority(self, priority):
+        # set prioirty in control field
+        self.cf.set_priority(priority)
+
+    def set_unicast(self):
+        # sets the address_type_flag to 0
+        self.address_type_flag = 0
+
+    def set_multicast(self):
+        # sets the address_type_flag to 1
+        self.address_type_flag = 1
+
             
     @property 
     def tpdu(self):
         # TPDU octet 5 d7, and octet 6
         # print ("TPDU DEBUG: self.address_type_flag: ", self.address_type_flag)
-        # print ("TPDU DEBUG: self.control_data_flag: ", self.control_data_flag)
+        # print ("TPDU DEBUG: self.data_control_flag: ", self.data_control_flag)
+        # print ("TPDU DEBUG: self.control_data: ", self.control_data)
         # print ("TPDU DEBUG: self.numbered: ", self.numbered)
         if self.address_type_flag:
             # ctl_data flag should be 0
-            if not self.control_data_flag:
+            if self.data_control_flag == 0:
                 if self.sqn == 1:
-                    return "T_Data_Tag_Group-PDU"
+                    return "T_Data_Tag_Group"
+                print ("DA:", self.da)
                 if self.da == 0:
-                    return "T_Data_Broadcast-PDU"
+                    return "T_Data_Broadcast"
                 if self.da != 0:
-                    return "T_Data_Group-PDU"
-        if not self.data_control_flag and not self.numbered:
-            return "T_Data_Individual-PDU"
-        if not self.data_control_flag == 0 and self.numbered:
-            return "T_Data_Connected-PDU"
-        if self.data_control_flag and not self.numbered and self.control_data == 1:
-            return "T_Connect-PDU"
-        if self.data_control_flag and not self.numbered and self.control_data == 0:
-            return "T_Disconnect-PDU"
+                    return "T_Data_Group"
+        # address flag is not set
         if self.data_control_flag and self.numbered and self.control_data == 2:
-            return "T_ACK-PDU"
-        if self.data_control_flag and self.numbered and self.control_data == 3:
-            return "T_NAK-PDU"
+            return "T_ACK"
+        if not self.data_control_flag and not self.numbered:
+            return "T_Data_Individual"
+        if self.data_control_flag == 0 and self.numbered:
+            return "T_Data_Connected"
+        if self.data_control_flag and self.numbered == 0 and self.control_data == 0:
+            return "T_Connect"
+        if self.data_control_flag and not self.numbered and self.control_data == 1:
+            return "T_Disconnect"
+        # this one doesn't follow the KNX Spec
+        if self.data_control_flag and self.control_data == 3:
+            return "T_NAK"
 
         return "UNDEF"
 
@@ -518,17 +513,18 @@ class Telegram(object):
     def octet6(self):
         # construct the 6th octet from telegram data
         # AHHHLLLL  A Address Type, H Hop Count, L length of payload
-        return (self.address_type_flag << 7) + (self.hop_count << 3) + self.length
+        print ("SELF.address_type_flag", self.address_type_flag)
+        return (self.address_type_flag << 7) + (self.hop_count << 4) + self.length
             
     def __str__(self):
         output = "TELEGRAM["
         if self.cf:
             output += f'{self.cf}'
-            
         if self.sa:
             output += (f'{self.sa} ')
-
         if self.da:
+            # check if unicast
+            self.da.unicast = self.address_type_flag == 0 and self.da > 0
             output += (f"--> {self.da} ")
         output += f"|{self.address_type}|"
         if self.hop_count:
@@ -579,7 +575,6 @@ class Telegram(object):
         return 0
                        
     def parse_packet_data(self, packet):
-        print ("PAKCET:", packet, len(packet))
         # parse packet into the telegram
         # get header
         try:
@@ -600,24 +595,23 @@ class Telegram(object):
         # we should have the length of the payload now, so extract it
         # iterate over the length of the payload and make a bytearay for it
         self.payload = bytearray()
-        print (f"[{__name__}] self.length:", self.length)
-        print (f"[{__name__}] self.pointer:", self.pointer)
-        print (f"[{__name__}] len(packet):", len(packet))
+        # print (f"[{__name__}] self.length:", self.length)
+        # print (f"[{__name__}] self.pointer:", self.pointer)
+        # print (f"[{__name__}] len(packet):", len(packet))
         if self.length == 0:
             # numbers here are the index in the packet startin a 0
             # just get the next byte, should be the last
             eop = self.pointer + 1
         else:
-            print ("LLLL", len(self.packet))
             eop = self.pointer + self.length + 1
 
-        print (f"[{__name__}] eop:", eop)
+        # print (f"[{__name__}] eop:", eop)
         for i in range(self.pointer, eop):
-            print (f"[{__name__}] packet i:", i)
+            # print (f"[{__name__}] packet i:", i)
             mybyte = struct.pack('>B', packet[i])
-            print (f"[{__name__}] payload byte i:", i, mybyte)
+            # print (f"[{__name__}] payload byte i:", i, mybyte)
             self.payload.extend(struct.pack('>B', packet[i]))
-        print (f"[{__name__}] PAYLOAD:", self.payload)
+        # print (f"[{__name__}] PAYLOAD:", self.payload)
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
         # print ("SELF.CHECKSUM:", self.checksum)
@@ -660,9 +654,9 @@ class Telegram(object):
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
         # print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
-        self.control_data_flag = payload_header >> 7
+        self.data_control_flag = payload_header >> 7
         self.tpci = payload_header >> 6 &0b11
-        print (f"[{__name__}] self.tpci:", self.tpci)
+        # print (f"[{__name__}] self.tpci:", self.tpci)
         if self.control_data_telegram:
             # print ("I HAVE A SPECIAL PURPOSE:", purpose)
             self.control_data = payload_header & 0b00000011
@@ -672,60 +666,57 @@ class Telegram(object):
             # read in the SQN
             self.sqn = (payload_header >> 2) & 0b00001111
             #self.apci.bits = 0
-        # calculate 10 and 4 bit acpi for now....
-        self.apci.parse( payload_header,  self.packet[self.pointer])
-        # assume the apci is 4 bits as all of the apci lenght logic i've found doesn't work
-        self.apci.bits = 4
-        # add the payload data, depending on the packet len
-        # base this on the bits and length
-        self.apci_data = self.packet[self.pointer] & 0b00111111
+        get_apci = True
+        if self.tpdu in ['T_ACK', 'T_Connect', 'T_NAK', 'T_Disconnect']:
+            # no apci for this type 
+            get_apci = False
+        if get_apci:
+            # calculate 10 and 4 bit acpi for now....
+            self.apci.parse( payload_header,  self.packet[self.pointer])
+            # assume the apci is 4 bits as all of the apci lenght logic i've found doesn't work
+            self.apci.bits = 4
+            # add the payload data, depending on the packet len
+            # base this on the bits and length
+            self.apci_data = self.packet[self.pointer] & 0b00111111
         if self.length == 0:
             self.payload = None
-        elif self.length == 1:
+        elif self.length == 1 and get_apci:
             self.payload == struct.pack('>B',self.apci_data)
         else:
             self.payload = bytearray()
             for i in range(self.pointer, self.pointer + self.length):
                 payload = struct.pack('>B', self.packet[i])
-                print ("PL:", i, payload, type(payload))
                 self.payload.extend(payload)
-        print ("POINTER:", self.pointer)
-        print ("PAYLOAD:", self.payload)
+        # how many bits is the apci, figuring this out is a damn mystery
+        # the spec make me think one way, but the caputres say something else
+        # so i'm just guessing here
+        if self.length > 3 and get_apci:
+            self.apci.bits = 10
+        if self.tpdu in ['T_Data_Broadcast'] and self.apci_data > 0:
+            self.apci.bits = 10
 
 
-        
-
-        print (f"[{__name__}] APCI:", self.apci)
-
-    def add_data_packet(self, dpt, apci='GroupValueWrite'):
+    def add_data_packet(self, dpt, apci='A_GroupValue_Write', hop_count=6, address_type_flag=1):
         # dpt should be a DPT class of some sort
-        #print ("ADD DATA PACKET:", len(dpt), dpt)
-        if len(dpt) > 1:
-            # we need a 10 bit APCI
-            if apci == 'GroupValueWrite':
-                apci = 'A_GroupValue_Write'
-                print ("set apci to A_GroupValue_Write")
-        # check encoding of DPT to see which APCI we can use
-        apci_rev_map = { value.upper():key for key,value in APCI.apci_map.items()}
-        apci_val = apci_rev_map[apci.upper()]
-        # print (apci_rev_map)
-        #print ("APCI VAL:", apci_val)
-        self.apci.apci = apci_val
+        print ("ADD DATA PACKET:", len(dpt), dpt, apci)
+        self.apci = APCI(name=apci)
+        # can be pack the data in to the first octet
+        if self.apci.bits == 4:
+            if dpt.length_in_bits < 7:
+                # pack into remainder of 2nd payload octet
+                pass
+        else:
+            # payload from 3rd plus octet 
+            pass
+        print ("Selfie.apcie:", self.apci)
+        print ("DPT....", dpt)
+        self.payload = dpt.payload(self.apci)
+        print ("POST DPT PAYLOAD", self.payload)
         # construct the 6th octet with address type, use multicast for now, hop count is always 6
-        self.hop_count = 6
+        self.hop_count = hop_count
         # use address type of multicast, D7 is 1
-        self.address_type_flag = 1
-        #self.octet6 = 0b10000000 + (6 << 4) + 1        
-        # first octet of the payload field will be retrieved from dpt.payload
-        #self.octet7 = apci_val >> 2
-        # get the payload from the dpt
-        payload = dpt.payload
-        # get the length from the dpt
-        self.length = len(dpt)
-        #print ("PAYLOADL:", dpt.payload)
-        #print ("SET SELF PAYLOAD")
-        self.payload = payload
-        #print ("self.payload:", self.payload, type(self.payload))
+        self.address_type_flag = address_type_flag
+
 
         
     def frame(self):
