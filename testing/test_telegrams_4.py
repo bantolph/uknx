@@ -1,0 +1,2 @@
+TEST_TELEGRAMS = [ b'\xb0\x11\x03\x11\r`\x03\x07\xb0\x95',
+                 ]

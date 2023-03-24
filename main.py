@@ -3,7 +3,6 @@ KNX
 upython 1.19.1
 __ver__ 0.01
 """
-from machine import Timer
 from machine import Pin
 from machine import UART
 import utime as time
@@ -14,6 +13,7 @@ from uknx import KNXSourceAddress
 from uknx import KNXDestinationAddress
 from uknx import Telegram
 from uknx import DPT_Switch
+from temporalqueue import SimpleTemporalQueue
 
 MAX_TELEGRAM_LENGTH=137
 
@@ -28,70 +28,6 @@ U_L_DATAEND = 0x40  # + length, min of 7
 print ("BEGIN...")
 uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
 led = Pin(25, Pin.OUT)
-
-class QueuedItem(object):
-    def __init__(self, item):
-        self.time_added = time.time()
-        self.item = item
-
-    @property
-    def age(self):
-        return time.time() - self.time_added
-
-    def __repr__(self):
-        return f"{self.item}[{self.age}]"
-
-
-
-class SimpleTemporalQueue(object):
-    def __init__(self, queue_len=16, unique=False, name="", timeout=10):
-        self.queue = []   # list of QuedItems
-        self.max_queue_length = queue_len
-        self.uniq = unique
-        self.name = name
-        self.timeout = timeout
-        self.DEBUG =  False  # only hold first telegram in queue
-
-    def put(self, item):
-        index = len(self)
-        q_item = QueuedItem(item)
-        if self.DEBUG:
-            if len(self.queue) > 0:
-                return False
-        self.maintenance()
-        if len(self.queue) < self.max_queue_length:
-            if self.uniq and item not in self.queue:
-                self.queue.append(q_item)
-                return True
-            elif not self.uniq:
-                self.queue.append(q_item)
-                return True
-        return False
-
-    def maintenance(self):
-        # clean out any old queue entries
-        for item in self.queue:
-            if item.age > self.timeout:
-                self.queue.remove(item)
-
-    def get(self):
-        # get next item off queue, FIFO style
-        if self.queue:
-            if self.DEBUG:
-                # dont pop it, just return it
-                return self.queue[0].item
-            q_item =self.queue.pop(0)
-            return q_item.item
-
-    @property
-    def empty(self):
-        return self.__len__ == 0
-
-    def __len__(self):
-        return len(self.queue)
-
-    def __str__(self):
-        return f"Q|{self.name}:({self.max_queue_length}){self.queue}"
 
 
 class KNXConnection(object):

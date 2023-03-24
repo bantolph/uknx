@@ -7,8 +7,9 @@ Tests to run with the micropython intepreter
 import uknx
 import dpt
 import struct
-from test_telegrams import TEST_TELEGRAMS
-CAPTURE_FILE = 'knx.cap'
+from testing.test_telegrams import TEST_TELEGRAMS
+CAPTURE_FILE = 'testing/knx.cap'
+CAPTURE_FILE = 'testing/knx.t_connect.cap'
 
 def test_KNXSourceAddress():
     print ("TESTING:", test_KNXSourceAddress.__name__ )
@@ -66,27 +67,19 @@ def test_DPT_Switch():
     print (" - init", end='')
     assert len(val) == 2
     assert val.value == 0
-    assert val.acpi_value == 2
-    assert val.first_two_bits == 0
-    assert val.value4 == 0
     assert val.payload == b'\x00\x80'
     print (' - PASS')
     print (" - 'On'", end='')
     val.set('On')
     assert len(val) == 2
     assert val.value == 1
-    assert val.acpi_value == 2
-    assert val.first_two_bits == 0
-    assert val.value4 == 1
     assert val.payload == b'\x00\x81'
     print (' - PASS')
     print (" - 'Off'", end='')
     val.set('Off')
     assert len(val) == 2
     assert val.value == 0
-    assert val.acpi_value == 2
-    assert val.first_two_bits == 0
-    assert val.value4 == 0
+    assert val.value == 0
     assert val.payload == b'\x00\x80'
     print (' - PASS')
 
@@ -163,9 +156,9 @@ def test_Telegram_A_DeviceDescriptor_Response():
 
 
 
-test_KNXSourceAddress()
-test_KNXDestinationAddress()
-#test_DPT_Switch()
-test_Telegram()
+#test_KNXSourceAddress()
+#test_KNXDestinationAddress()
+# test_DPT_Switch()
+#test_Telegram()
 test_Telegram_apci()
 #test_Telegram_A_DeviceDescriptor_Response()

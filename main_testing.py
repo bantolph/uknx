@@ -10,6 +10,8 @@ from uknx import KNXSourceAddress
 from uknx import KNXDestinationAddress
 from uknx import Telegram
 from dpt import PDU_DeviceDescriptor
+from temporalqueue import SimpleTemporalQueue
+
 
 class Pin(object):
     OUT = 0
@@ -35,99 +37,43 @@ U_L_DATASTART = 0x80
 U_L_DATACONTINUE = 0x81  # DATASTART plus index
 U_L_DATAEND = 0x40  # + length, min of 7
 
+
 print ("BEGIN...")
 #uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
 # socat -d -d pty,raw,echo=0 pty,raw,echo=0 
-uart0 = open('/dev/pts/8', 'r')
+uart0 = open('/dev/pts/2', 'r')
 led = Pin(25, Pin.OUT)
-
-class QueuedItem(object):
-    def __init__(self, item):
-        self.time_added = time.time()
-        self.item = item
-
-    @property
-    def age(self):
-        return time.time() - self.time_added
-
-    def __repr__(self):
-        return f"{self.item}[{self.age}]"
-
-
-
-class SimpleTemporalQueue(object):
-    def __init__(self, queue_len=16, unique=False, name="", timeout=10):
-        self.queue = []   # list of QuedItems
-        self.max_queue_length = queue_len
-        self.uniq = unique
-        self.name = name
-        self.timeout = timeout
-        self.DEBUG =  False  # only hold first telegram in queue
-
-    def put(self, item):
-        index = len(self)
-        q_item = QueuedItem(item)
-        if self.DEBUG:
-            if len(self.queue) > 0:
-                return False
-        self.maintenance()
-        if len(self.queue) < self.max_queue_length:
-            if self.uniq and item not in self.queue:
-                self.queue.append(q_item)
-                return True
-            elif not self.uniq:
-                self.queue.append(q_item)
-                return True
-        return False
-
-    def maintenance(self):
-        # clean out any old queue entries
-        for item in self.queue:
-            if item.age > self.timeout:
-                self.queue.remove(item)
-
-    def get(self):
-        # get next item off queue, FIFO style
-        if self.queue:
-            if self.DEBUG:
-                # dont pop it, just return it
-                return self.queue[0].item
-            q_item =self.queue.pop(0)
-            return q_item.item
-
-    @property
-    def empty(self):
-        return self.__len__ == 0
-
-    def __len__(self):
-        return len(self.queue)
-
-    def __str__(self):
-        return f"Q|{self.name}:({self.max_queue_length}){self.queue}"
 
 
 class KNXConnection(object):
-    def __init__(self, peer, sa=None, action=None):
+    def __init__(self, peer, sa=None, action=None, priority='Low', service_id=None):
         self.sqn = 0
         self.da = peer   # peer we have the connection with
         self.sa = sa
         self.age = time.time()
+        self.priority = priority
+        self.service_id = None
         self.action = getattr(self, action)()   # action to take on this packet  ACK, NAK 
         self.last_action_uart = False   # did the last transmit get OK'd by the UART
+        self.state = None    # CLOSED, OPEN_IDLE, OPEN_WAIT, CONNECTING
 
     def __str__(self):
         output = f"CSM:{self.da}:SQN {self.sqn}:action {self.action}"
         return output
 
     def __repr__(self):
-        return f'Connection({self.da}:{self.sqn})'
+        return f'Connection({self.da}:{self.sqn}:{self.service_id})'
 
     def __eq__(self, other):
         return self.da == other.da
 
-    def ack(self):
-        # return an ack Telegram
-        ack = Telegram(src=self.sa, dst=self.da, control="TL_ACK")
+    def T_Connect(self):
+        # open a connection and return an ack
+        ack = Telegram(src=self.sa, dst=self.da, init=True, 
+                       sqn=self.sqn)
+        ack.set_priority(self.priority)
+        ack.ack(self.sqn, service_id=self.service_id)
+        print ("ACK:",ack)
         return ack.frame()
 
     def A_DeviceDescriptor_Read(self):
@@ -173,6 +119,12 @@ class KNXDevice(object):
         self.led = led
         self.connections = []   # list of KNXConnection objects
         self.descriptor = 0xabcd   # TODO  placeholder
+        self.service_id_ctr = 0
+
+    def get_new_service_id(self):
+        # TODO: add free service id checker
+        self.service_id_ctr += 1
+        return self.service_id_ctr
 
     def connection_remove(self, address):
         print (f"REMOVE {address} from {self.connections}")
@@ -219,15 +171,20 @@ class KNXDevice(object):
     def process_telegram(self, telegram):
         # is it data or management
         # do we 
-        print ("telegram.control_data:", telegram.control_data)
+        print ("T_telegram.control_data:", telegram.control_data)
         if telegram.cf.priority == 0:
             print ("SYSTEM TELEGRAM FOR ME!!!")
             print (telegram.frame())
         if telegram.control_data is not None:
-            print ("CONTROL DATA MANAGMENT TELEGRAM!!!")
+            print ("CONTROL DATA MANAGMENT TELEGRAM!!!", telegram.control_data)
             if telegram.control_data == 0:   # TL_connect
                 # ack it and create a connection
-                csm = KNXConnection(telegram.sa, sa=self.address, action='ack')
+                print ("T_CONNECT")
+                csm = KNXConnection(telegram.sa,
+                                    sa=self.address,
+                                    priority=telegram.priority,
+                                    service_id = self.get_new_service_id(),
+                                    action='T_Connect')
                 # add it 
                 if csm not in self.connections:
                     self.connections.append(csm)
@@ -309,12 +266,18 @@ class KNXDevice(object):
         debug = True
         while True:
             res = await self.sreader.readline()
-            print ("RES:", res)
+            print ("RAW RES:", res)
             if debug:
+                # trim first and last for socat
                 res = res[1:-1]
-            print ("RES:", res)
+            print ("TRIMMED RES:", res)
+            count = 1
+            for char in res:
+                print ("RES[]: ", count, hex(char))
+                count += 1
+            res = b'\xB0\x11\x0D\x11\x03\x60\x80\xA1'
             telegram = Telegram(packet=res)
-            print (telegram)
+            print ("Received telegram:", telegram)
             # check if we are interested in the telegram
             if self.interesed_in_telegram(telegram):
                 print ("RX:", telegram)

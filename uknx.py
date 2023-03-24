@@ -355,8 +355,13 @@ class KNXControlField(object):
     
     def set_priority(self, priority):
         # set the knx priority from the map
-        rev_map = { value.upper():key for key,value in self.priority_map.items()}
-        self.priority = rev_map[priority.upper()]
+        if isinstance(priority, int):
+            self.priority = priority
+        else:
+            rev_map = { value.upper():key for key,value in self.priority_map.items()}
+            self.priority = rev_map[priority.upper()]
+        return self.priority
+
         
     def set_original(self):
         self.repetition_status = 0
@@ -405,7 +410,7 @@ class Telegram(object):
                          3:"TL_NAK"
                          }
 
-    def __init__(self, packet=None, src=None, dst=None, init=False, sqn=-1, length=0, control=False, apci=None):
+    def __init__(self, packet=None, src=None, dst=None, init=False, sqn=-1, length=0, apci=None):
         self.cf = KNXControlField(init=init)
         if isinstance(src, KNXSourceAddress):
             self.sa = src
@@ -439,17 +444,8 @@ class Telegram(object):
             self.set_numbered()
         if packet:
             self.parse_packet_data(packet)
-        if control == "TL_ACK":
-            # make it a TL ACK
-            print (f"[{__name__}] TL_ACK")
-            self.cf = KNXControlField(init=True)
-            self.cf.set_priority('System')
-            self.hop_count = 6
-            self.length = 0
-            self.address_type_flag = 0
-            self.control_data = 2
-            # constcut a TPCI with a purpose of control data, sqn prestnt, sqn and ctrol data
-            self.payload = struct.pack('>B', ((1 << 7) + (1 << 6) + (self.sqn << 3) + self.control_data))
+
+    
             
     @property
     def numbered(self):
@@ -462,9 +458,17 @@ class Telegram(object):
         #tpci = self.tpci
         #self.tpci = tpci  ^ 0b01
 
+    def unset_numbered(self):
+        # this telegram doesnt care about squence numbers
+        self.tpci = self.tpci >> 1
+        self.tpci = self.tpci << 1
+        #tpci = self.tpci
+        #self.tpci = tpci  ^ 0b01
+
     def set_priority(self, priority):
         # set prioirty in control field
         self.cf.set_priority(priority)
+
 
     def set_unicast(self):
         # sets the address_type_flag to 0
@@ -474,7 +478,22 @@ class Telegram(object):
         # sets the address_type_flag to 1
         self.address_type_flag = 1
 
-            
+    def ack(self, sqn=None, service_id=None):
+        # set ack flags 
+        print ("set ACK")
+        if sqn:
+            self.sqn=sqn
+            self.set_numbered()
+        else:
+            self.sqn=0
+            self.unset_numbered()
+        self.set_unicast()
+        self.data_control_flag = 1
+        self.control_data = 2 
+        self.length = 0
+        payload = self.tpci << 7 + self.control_data
+        self.payload = struct.pack('>B', payload)
+
     @property 
     def tpdu(self):
         # TPDU octet 5 d7, and octet 6
@@ -506,15 +525,18 @@ class Telegram(object):
         # this one doesn't follow the KNX Spec
         if self.data_control_flag and self.control_data == 3:
             return "T_NAK"
-
         return "UNDEF"
 
     @property
     def octet6(self):
         # construct the 6th octet from telegram data
         # AHHHLLLL  A Address Type, H Hop Count, L length of payload
-        print ("SELF.address_type_flag", self.address_type_flag)
+        # print ("SELF.address_type_flag", self.address_type_flag)
         return (self.address_type_flag << 7) + (self.hop_count << 4) + self.length
+
+    @property
+    def priority(self):
+        return self.cf.priority
             
     def __str__(self):
         output = "TELEGRAM["
@@ -653,13 +675,15 @@ class Telegram(object):
         # D7 control_data_flag purpose, 0 - "data packet", 1 - "control data"
         # D6 S SQN present, 0 - No sqn, dont care about d5, d4, d3, s2, 1 - sqn present and it is d5, d4, d3, d2 - N - SQN Number
         # D1, D0 - C - control data
-        # print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
+        print ("PAYLOAD HEADER:", payload_header, bin(payload_header))
         self.data_control_flag = payload_header >> 7
         self.tpci = payload_header >> 6 &0b11
+        print ("TPCI:", self.tpci)
         # print (f"[{__name__}] self.tpci:", self.tpci)
         if self.control_data_telegram:
-            # print ("I HAVE A SPECIAL PURPOSE:", purpose)
+            print ("CONTROL DATA TELEGRAM")
             self.control_data = payload_header & 0b00000011
+            print ("CONTROL DATA TELEGRAM", self.control_data)
 
         seq = payload_header & 0b01000000
         if seq is not None:
@@ -698,7 +722,6 @@ class Telegram(object):
 
     def add_data_packet(self, dpt, apci='A_GroupValue_Write', hop_count=6, address_type_flag=1):
         # dpt should be a DPT class of some sort
-        print ("ADD DATA PACKET:", len(dpt), dpt, apci)
         self.apci = APCI(name=apci)
         # can be pack the data in to the first octet
         if self.apci.bits == 4:
@@ -708,10 +731,9 @@ class Telegram(object):
         else:
             # payload from 3rd plus octet 
             pass
-        print ("Selfie.apcie:", self.apci)
-        print ("DPT....", dpt)
         self.payload = dpt.payload(self.apci)
-        print ("POST DPT PAYLOAD", self.payload)
+        # length is the length of the dpt payload
+        self.length = len(self.payload)
         # construct the 6th octet with address type, use multicast for now, hop count is always 6
         self.hop_count = hop_count
         # use address type of multicast, D7 is 1
@@ -722,6 +744,7 @@ class Telegram(object):
     def frame(self):
         # construct a telegram frame to be sent
         # pack the CF,SA,DA, octet6 and payload
+        print ("LENGTH:", self.length)
         print ("OCTET6:", self.octet6)
         print ("PAYLOAD:", self.payload)
         frame_header = struct.pack('>BHHB', self.cf, self.sa, self.da, self.octet6)
@@ -730,5 +753,13 @@ class Telegram(object):
         # calculate the checksum
         xsum = struct.pack('>B', self.calculate_checksum(frame))[0]
         frame.append(xsum)
+        print ("FRAME:", frame)
+        DEBUG = True
+        if DEBUG:
+            counter = 1
+            for octet in frame:
+                print (f"OCTET: {counter:>2}  {octet:4}  {octet:>08b}   0x{octet:02x}", chr(octet))
+                counter += 1
+
         
         return frame

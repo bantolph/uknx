@@ -47,7 +47,7 @@ class DPT(object):
     def payload(self, acpi):
         # return the rest of the payload as a bytearray
         acpi_value = acpi.value
-        print ("DPT PAYLOAD ACPI VALUE:", acpi_value)
+        # print ("DPT PAYLOAD ACPI VALUE:", acpi_value)
         if self.length_in_bits <= 6:
             # we only have two payload packet, encode the last two bits of the apci value
             # and add the data
