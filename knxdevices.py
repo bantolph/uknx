@@ -113,6 +113,7 @@ class KNXAsyncDevice(object):
         self.connections = []   # list of KNXConnection objects
         self.descriptor = 0xabcd   # TODO  placeholder
         self.service_id_ctr = 0
+        self.debug = False
 
     def get_new_service_id(self):
         # TODO: add free service id checker
@@ -258,19 +259,20 @@ class KNXAsyncDevice(object):
 
     async def _recv(self):
         print ("_recv KNX READER STARTING", self.uart)
-        debug = True
         while True:
-            res = await self.sreader.readline()
-            print ("RAW RES:", res)
-            if debug:
+            if self.debug:
+                res = await self.sreader.readline(MAX_TELEGRAM_LENGTH)
+                print ("RAW RES:", res)
                 # trim first and last for socat
                 res = res[1:-1]
+            else:
+                res = await self.sreader.read(MAX_TELEGRAM_LENGTH)
             print ("TRIMMED RES:", res)
             count = 1
             for char in res:
                 print ("RES[]: ", count, hex(char))
                 count += 1
-            res = b'\xB0\x11\x0D\x11\x03\x60\x80\xA1'
+            # res = b'\xB0\x11\x0D\x11\x03\x60\x80\xA1'
             telegram = Telegram(packet=res)
             print ("Received telegram:", telegram)
             # check if we are interested in the telegram
@@ -279,16 +281,6 @@ class KNXAsyncDevice(object):
                 self.rx_queue.put(telegram)
             self.flash = True
             # print ('x')
-
-    async def _writer(self):
-        print ("_write KNX WRITER STARTING", self.uart)
-        while True:
-            await asyncio.sleep(1)
-            #print ("Sleep....")
-            if self.xmit_queue:
-                frame = self.xmit_queue.pop(0)
-                print ("Need xmit frame:", frame)
-                await self.swriter.awrite(frame)
 
     async def _telegram_writer(self):
         print ("_frame_writer KNX WRITER STARTING", self.uart)
@@ -356,6 +348,9 @@ class KNXAsyncDevice(object):
         if (resp >> 7) & 0b1:
             print ("SLAVE COLLISION")
             errors.append("SC")
+        if resp == 0:
+            print ("BCU NOT RESPONDING")
+            errors.append("TO")
         return False
 
 
