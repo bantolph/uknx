@@ -1,5 +1,6 @@
 import time
 from uknx import Telegram
+from dpt import PDU_DeviceDescriptor
 
 
 class KNXConnection(object):
