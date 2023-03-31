@@ -4,6 +4,46 @@ upython 1.19.1
 """
 import struct
 
+class PropertyValueResponse(object):
+    # this is a PDU - the APCI bits
+    def __init__(self, property_id, object_index = 0, number_of_elements = 0, start_index = 0):
+        self.object_index = object_index
+        self.property_id = property_id  # int(byte)
+        self.number_of_elements = number_of_elements & 0b1111 # 4 bit value
+        self.start_index = start_index   # 12 bit value
+        self.data = bytearray()
+
+    def payload(self):
+        payload = bytearray()
+        payload.extend(struct.pack('B', self.object_index))
+        payload.extend(struct.pack('B', self.property_id))
+        # next byte is number of elments and 4 high order bits of start index
+        payload.extend(struct.pack('B'), (self.number_of_elements << 4) + (self.start_index >> 8))
+        payload.extend(data)
+        return payload
+
+
+class PropertyValueRead(object):
+    # this is a PDU - the APCI bits
+    def __init__(self, property_id, object_index = 0, number_of_elements = 0, start_index = 0):
+        self.object_index = object_index
+        self.property_id = property_id  # int(byte)
+        self.number_of_elements = number_of_elements & 0b1111 # 4 bit value
+        self.start_index = start_index   # 12 bit value
+
+    def payload(self):
+        payload = bytearray()
+        payload.extend(struct.pack('B', self.object_index))
+        payload.extend(struct.pack('B', self.property_id))
+        # next byte is number of elments and 4 high order bits of start index
+        payload.extend(struct.pack('B'), (self.number_of_elements << 4) + (self.start_index >> 8))
+        return payload
+
+    def __str__(self):
+        return f'(IDX:{self.object_index} PID:{self.property_id} #:{self.number_of_elements} Start IDX: {self.start_index})'
+
+
+
 
 class DPT(object):
 

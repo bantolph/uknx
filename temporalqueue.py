@@ -63,3 +63,8 @@ class SimpleTemporalQueue(object):
 
     def __str__(self):
         return f"Q|{self.name}:({self.max_queue_length}){self.queue}"
+
+    def __bool__(self):
+        if self.queue:
+            return True
+        return False

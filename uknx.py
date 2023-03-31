@@ -5,6 +5,8 @@ upython 1.19.1
 import time
 import struct
 import uasyncio as asyncio
+from dpt import PropertyValueRead
+from dpt import PropertyValueResponse
 
 MAX_TELEGRAM_LENGTH=137
 
@@ -249,6 +251,29 @@ class APCI(object):
     def add_payload(self, dpt):
         self.payload = dpt
 
+    def payload_parse(self, payload):
+        # pares payload bytes to make a payload object
+        print ("PAYLOAD PARSE", payload)
+        if self.name == 'A_PropertyValue_Read' and len(payload) == 4:
+            # READ THIS BITCH
+            object_index = payload[0]
+            property_id = payload[1]
+            number_of_elements = payload[2] >> 4
+            # last 4 bits of octet 10 + octet 11
+            start_index = (payload[2] & 0b1111) << 8 + payload[3]
+            print ("REED: object_index:", object_index)
+            print ("REED: pid:", property_id)
+            print ("REED: no elems:", number_of_elements)
+            print ("REED: start index:", start_index)
+            self.payload = PropertyValueRead(property_id, 
+                                             object_index = object_index,
+                                             number_of_elements= number_of_elements,
+                                             start_index=start_index
+                                             )
+            print ("KKKKKKKKKKKKKKKKKKKK", self.payload)
+
+
+
     def __bool__(self):
         if self.bits != 4 and self.bits != 10:
             return False
@@ -445,7 +470,21 @@ class Telegram(object):
         if packet:
             self.parse_packet_data(packet)
 
-    
+    def _apci_payload(self):
+        print ("apci_payload: SELF.PAYLOAD:", self.payload)
+        print ("apci_payload: SELF.APCI.BITS:", self.apci.bits)
+        if self.apci.bits == 4:
+            # need to look at length of packet
+            if self.length > 1:
+                apci_payload = self.payload[0] << 2
+            else:
+                apci_payload = self.payload[1:]
+        if self.apci.bits == 10:
+            # octet 8 an on
+            apci_payload = self.payload[1:]
+        print ("_apci_payload: apci_payload:", apci_payload)
+        return apci_payload
+        
             
     @property
     def numbered(self):
@@ -563,7 +602,7 @@ class Telegram(object):
             output += f"{self.control_data_map[self.control_data]}"
         output += f"|{self.tpdu}"
         output += "]\n"
-        output += f"CALCULATED CHECKSUM: 0x{self.calculate_packet_checksum():02x}"
+        # output += f"CALCULATED CHECKSUM: 0x{self.calculate_packet_checksum():02x}"
         return output
     
     def calculate_packet_checksum(self):
@@ -637,6 +676,7 @@ class Telegram(object):
         # checksum is the very last octet of the packet
         self.checksum = packet[-1]
         # print ("SELF.CHECKSUM:", self.checksum)
+        print ("MESLEFY PAYLOAD:", self.payload)
     
     def parse_len(self, len_data):
         # parse address type, hop count, length
@@ -718,6 +758,11 @@ class Telegram(object):
             self.apci.bits = 10
         if self.tpdu in ['T_Data_Broadcast'] and self.apci_data > 0:
             self.apci.bits = 10
+        # now that we have an apci -- figure out the apci payload
+        if get_apci:
+            apci_payload_bytes = self._apci_payload()
+            print ("APCI PAYLOAD:", apci_payload_bytes)
+            self.apci.payload_parse(apci_payload_bytes)
 
 
     def add_data_packet(self, dpt, apci='A_GroupValue_Write', hop_count=6, address_type_flag=1):

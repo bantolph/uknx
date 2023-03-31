@@ -10,6 +10,7 @@ import rp2
 import struct
 from knxdevices import KNXAsyncDevice as KNXDevice
 
+"""
 MAX_TELEGRAM_LENGTH=137
 
 U_RESET_REQUEST = 0x01
@@ -19,6 +20,7 @@ U_SETADDRESS = 0x28
 U_L_DATASTART = 0x80
 U_L_DATACONTINUE = 0x81  # DATASTART plus index
 U_L_DATAEND = 0x40  # + length, min of 7
+"""
 
 print ("BEGIN...")
 uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)

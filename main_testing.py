@@ -18,23 +18,24 @@ class Pin(object):
 
     def __init__(self, pin, pin_type):
         # fake Pin object
-        pass
+        self.state = False
+
+    def __str__(self):
+        if self.state:
+            return "ON"
+        return "OFF"
+
     def on(self):
+        self.state = True
         return True
+
     def off(self):
+        self.state = True
         return True
+
     def toggle(self):
+        self.state = not self.state
         return True
-
-MAX_TELEGRAM_LENGTH=137
-
-# U_RESET_REQUEST = 0x01
-# U_STATE_REQUEST = 0x02
-# _PRODUCTID_REQUEST = 0x20
-# U_SETADDRESS = 0x28
-# U_L_DATASTART = 0x80
-# U_L_DATACONTINUE = 0x81  # DATASTART plus index
-# U_L_DATAEND = 0x40  # + length, min of 7
 
 
 print ("BEGIN...")
@@ -42,12 +43,9 @@ print ("BEGIN...")
 # socat -d -d pty,raw,echo=0 pty,raw,echo=0 
 # open the virtual sieral port
 time.sleep(1)
-uart0 = open('/dev/ttyUSB0', 'r')
+uart0 = open('/dev/pts/6', 'r')
+#uart0 = open('/dev/ttyUSB0', 'r')
 led = Pin(25, Pin.OUT)
-
-
-
-
 
 
 # KNX Device
@@ -59,6 +57,8 @@ MYKNXADDR="1.1.26"
 #knx.add_group('0/0/1')
 print ("KNX:", knx)
 knx.address = KNXSourceAddress(addr="1.1.3")
+knx.debug = True
+print ("KNX:", knx)
 
 # make a telegram
 #mytelegram = Telegram(src=MYKNXADDR, dst="0.0.1", init=True)

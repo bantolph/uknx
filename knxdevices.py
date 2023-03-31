@@ -7,6 +7,7 @@ from uknx import KNXDestinationAddress
 from uknx import Telegram
 from temporalqueue import SimpleTemporalQueue
 from knxconnection import KNXConnection
+import binascii
 
 MAX_TELEGRAM_LENGTH=137
 
@@ -115,6 +116,19 @@ class KNXAsyncDevice(object):
         self.service_id_ctr = 0
         self.debug = False
 
+        # properties
+        self.properties = {}
+        self.pid_progmode = False   # 0x36 54 0, not in programming mode, 1 in progr mode
+        self.properties[56] = MAX_TELEGRAM_LENGTH - 10   # MAX APDU LENGTH, 0x38
+        self.properties[58] = 0    # pid programming mode, 0x
+
+
+    def _update_properties(self):
+        self.properties[58] = 0    # pid programming mode, 0x
+        if self.pid_progmode == True:
+            self.properties[58] = 1 
+
+
     def get_new_service_id(self):
         # TODO: add free service id checker
         self.service_id_ctr += 1
@@ -129,6 +143,14 @@ class KNXAsyncDevice(object):
                 print ("-------removed:", self.connections)
                 return True
 
+    def connection_get(self, address):
+        print (f"GET CONNECTION {address} from {self.connections}")
+        for connection in self.connections:
+            if connection.da == address:
+                print ("GOT A CONNECTION")
+                return connection
+        return False
+
 
     def __str__(self):
         output = f"KNX Device: {self.address} - ["
@@ -138,11 +160,13 @@ class KNXAsyncDevice(object):
         return output
 
     async def rx_queue_monitor(self):
+        print ("rx_queue_monitor starting")
         while True:
-            await asyncio.sleep_ms(50)
+            await asyncio.sleep_ms(1000)
             # print ("RX QUEUE:", self.rx_queue)
             # pull the first telegram out of the rx queue
             if self.rx_queue:
+                # print ("self.rx_queue is true")
                 resp = self.process_telegram(self.rx_queue.get())
                 # do any queue maintenance, cleaning out old telegrams
                 self.rx_queue.maintenance()
@@ -155,7 +179,7 @@ class KNXAsyncDevice(object):
 
     async def tx_queue_monitor(self):
         while True:
-            await asyncio.sleep(20)
+            await asyncio.sleep(5)
             #print ("self.test_telegram:", self.test_telegram)
             #self.tx_queue.put(self.test_telegram)
             print ("TX QUEUE:", self.tx_queue)
@@ -165,7 +189,7 @@ class KNXAsyncDevice(object):
     def process_telegram(self, telegram):
         # is it data or management
         # do we 
-        print ("T_telegram.control_data:", telegram.control_data)
+        print ("PROCESS TELEGRAM T_telegram.control_data:", telegram.control_data)
         if telegram.cf.priority == 0:
             print ("SYSTEM TELEGRAM FOR ME!!!")
             print (telegram.frame())
@@ -183,6 +207,7 @@ class KNXAsyncDevice(object):
                 if csm not in self.connections:
                     self.connections.append(csm)
             elif telegram.control_data == 1:   # TL_disconnect
+                print ("T_DISCONNECT")
                 # remove the csm
                 if self.connection_remove(telegram.sa):
                     return
@@ -198,7 +223,26 @@ class KNXAsyncDevice(object):
             print ("NORMALISH TELEGRAM FOR ME!!!")
             if telegram.apci.name == 'A_DeviceDescriptor_Read':
                 print ("HERES MY DD BITCH")
-                csm = KNXConnection(telegram.sa, sa=self.address, action=telegram.apci.name)
+                csm = self.connection_get(telegram.sa)
+                if csm:
+                    csm.set_action(telegram.apci.name)
+                #csm = KNXConnection(telegram.sa, sa=self.address, action=telegram.apci.name)
+            if telegram.apci.name == 'A_PropertyValue_Read':
+                print ("READ THIS MOTHER FUCKER")
+                print (" = TELEGRAM PAYLOAD:", telegram.payload)
+                print (" ===== APCI NAME   :", telegram.apci.name)
+                print (" ===== APCI PAYLOAD:", telegram.apci.payload)
+                csm = self.connection_get(telegram.sa)
+                if csm:
+                    print ("GOT CSM:", csm)
+                    # update properties and set them in the csm
+                    self._update_properties()
+                    csm.properties = self.properties
+                    csm.set_action(telegram.apci.name)
+                    print ("KKKKKFDKFJKJFDKF:", telegram.apci.name, type(telegram.apci.name))
+            # finally ----
+            if csm:
+                self.tx_queue.put(csm)
 
     def start(self):
         # start event loop
@@ -261,26 +305,18 @@ class KNXAsyncDevice(object):
         print ("_recv KNX READER STARTING", self.uart)
         while True:
             if self.debug:
-                res = await self.sreader.readline(MAX_TELEGRAM_LENGTH)
-                print ("RAW RES:", res)
-                # trim first and last for socat
-                res = res[1:-1]
+                b64res = await self.sreader.readline()
+                res = binascii.a2b_base64(b64res)
             else:
                 res = await self.sreader.read(MAX_TELEGRAM_LENGTH)
-            print ("TRIMMED RES:", res)
-            count = 1
-            for char in res:
-                print ("RES[]: ", count, hex(char))
-                count += 1
-            # res = b'\xB0\x11\x0D\x11\x03\x60\x80\xA1'
             telegram = Telegram(packet=res)
             print ("Received telegram:", telegram)
             # check if we are interested in the telegram
             if self.interesed_in_telegram(telegram):
                 print ("RX:", telegram)
                 self.rx_queue.put(telegram)
+            print ("RX Q: ", self.rx_queue)
             self.flash = True
-            # print ('x')
 
     async def _telegram_writer(self):
         print ("_frame_writer KNX WRITER STARTING", self.uart)
@@ -298,14 +334,17 @@ class KNXAsyncDevice(object):
                 frame = csm.action
                 print ("WRITING FRAME:", frame)
                 for i in range (0, len(frame)):
-                    # print ("OCTET", i, frame[i])
+                    print ("OCTET", i, frame[i])
                     if i == len(frame) -1:
                         # end of packet
                         cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
                     else:
                         cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
-                    # print ("-cmd:", cmd)
-                    await self.swriter.awrite(cmd)
+                    if self.debug:
+                        pass
+                        #print ("-uart cmd:", cmd)
+                    else:
+                        await self.swriter.awrite(cmd)
                 # read the response
                 #asyncio.sleep_ms(100)
                 #resp = self.sreader.read(10)

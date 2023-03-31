@@ -4,16 +4,21 @@ from dpt import PDU_DeviceDescriptor
 
 
 class KNXConnection(object):
-    def __init__(self, peer, sa=None, action=None, priority='Low', service_id=None):
+    def __init__(self, peer, sa=None, action=None, priority='Low', service_id=None, properties = {}):
         self.sqn = 0
         self.da = peer   # peer we have the connection with
         self.sa = sa
         self.age = time.time()
         self.priority = priority
         self.service_id = None
-        self.action = getattr(self, action)()   # action to take on this packet  ACK, NAK 
+        if action:
+            self.action = getattr(self, action)()   # action to take on this packet  ACK, NAK 
+        else:
+            self.action = None
+        # self.action = self.set_action(action)
         self.last_action_uart = False   # did the last transmit get OK'd by the UART
         self.state = None    # CLOSED, OPEN_IDLE, OPEN_WAIT, CONNECTING
+        self.properties = properties
 
     def __str__(self):
         output = f"CSM:{self.da}:SQN {self.sqn}:action {self.action}"
@@ -24,6 +29,12 @@ class KNXConnection(object):
 
     def __eq__(self, other):
         return self.da == other.da
+
+    def set_action(self, action):
+        if action:
+            self.action = getattr(self, action)()
+            return True
+        return False
 
     def T_Connect(self):
         # open a connection and return an ack
@@ -36,7 +47,6 @@ class KNXConnection(object):
 
     def A_DeviceDescriptor_Read(self):
         # need to craft response
-        print ("AAA")
         resp = Telegram(src=self.sa, dst=self.da,
                         init=True,
                         sqn=self.sqn,
@@ -54,4 +64,13 @@ class KNXConnection(object):
         print ("----------------END RESPONSE")
 
         return resp.frame()
+
+    def A_PropertyValue_Read(self):
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA DEVICE PROPERTIES", self.properties)
+        resp = Telegram(src=self.sa, dst=self.da,
+                        init=True,
+                        sqn=self.sqn,
+                        apci='A_PropertyValue_Response')
+        return resp.frame()
+        
 
