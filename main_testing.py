@@ -40,10 +40,11 @@ class Pin(object):
 
 print ("BEGIN...")
 #uart0 = UART(0, baudrate=19200, parity=0, stop=1, tx=Pin(0), rx=Pin(1), timeout_char=2)
-# socat -d -d pty,raw,echo=0 pty,raw,echo=0 
+# socat -d -d pty,raw,echo=0,link=/tmp/server pty,raw,echo=0,link=/tmp/client
 # open the virtual sieral port
 time.sleep(1)
-uart0 = open('/dev/pts/6', 'r')
+#uart0 = open('/dev/pts/6', 'r')
+uart0 = open('/tmp/server', 'r')
 #uart0 = open('/dev/ttyUSB0', 'r')
 led = Pin(25, Pin.OUT)
 

@@ -13,7 +13,8 @@ class PropertyValueResponse(object):
         self.start_index = start_index   # 12 bit value
         self.data = bytearray()
 
-    def payload(self):
+    def payload(self, apci=None, wtf=None):
+        # apci is just a placeholder
         payload = bytearray()
         payload.extend(struct.pack('B', self.object_index))
         payload.extend(struct.pack('B', self.property_id))
@@ -21,6 +22,30 @@ class PropertyValueResponse(object):
         payload.extend(struct.pack('B'), (self.number_of_elements << 4) + (self.start_index >> 8))
         payload.extend(data)
         return payload
+
+    def __len__(self):
+        return 3 + len(self.data)
+
+    def add_data(self, data):
+        if isinstance(data, int):
+            if data >= 0 <= 254:
+                self.data.extend(struct.pack("B", data))
+                return True
+            else:
+                self.data.extend(struct.pack(">H", data))
+                return True
+        return False
+
+    def __str__(self):
+        output = f'(IDX:{self.object_index} PID:{self.property_id}'
+        output += f'#:{self.number_of_elements} Start IDX: {self.start_index}'
+        data = "::"
+        for mybyte in self.data:
+            data += (f'0x{mybyte:02x} ')
+        output += f'{data})'
+        return output
+
+            
 
 
 class PropertyValueRead(object):

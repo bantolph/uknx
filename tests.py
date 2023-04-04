@@ -8,6 +8,8 @@ import uknx
 import dpt
 import struct
 from testing.test_telegrams import TEST_TELEGRAMS
+from knxconnection import KNXConnection
+
 CAPTURE_FILE = 'testing/knx.cap'
 CAPTURE_FILE = 'testing/knx.t_connect.cap'
 
@@ -156,9 +158,9 @@ def test_Telegram_A_DeviceDescriptor_Response():
 
 
 
-#test_KNXSourceAddress()
-#test_KNXDestinationAddress()
+test_KNXSourceAddress()
+test_KNXDestinationAddress()
 # test_DPT_Switch()
-#test_Telegram()
+test_Telegram()
 test_Telegram_apci()
-#test_Telegram_A_DeviceDescriptor_Response()
+test_Telegram_A_DeviceDescriptor_Response()

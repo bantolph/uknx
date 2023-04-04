@@ -248,6 +248,16 @@ class APCI(object):
             return self.apci10
         return -1
 
+    @property
+    def high_order_bits(self):
+        # return the D6 and D7 
+        if self.bits == 4:
+            return self.value >> 2
+        if self.bits == 10:
+            return self.value >> 8
+        # unset
+        return -1
+
     def add_payload(self, dpt):
         self.payload = dpt
 
@@ -301,9 +311,38 @@ class APCI(object):
             return self.apci_map[self.apci10]
         return "UNKNOWN"
 
+
+    @property
+    def bytes(self):
+        # return apci as bytes, this is the 2nd payload of the data packet
+        payload = bytearray()
+        if not self.payload:
+            return  payload
+        """
+        if self.bits == 4:
+            if self.dpt.bit_len < 6:
+                return bytearray(stuct.pack('B', (self.value & 0b11) << 6 + self.payload.payload))
+            else:
+                payload.extend(struct.pack('B', (self.value & 0b11) << 6))
+        if self.bits == 10:
+            payload.extend(struct.pack('B',self.value << 2))
+        # add dpt payload
+        """
+        print ("TYPE SELF.PAYLOAD:::::::::::::::", type(self.payload))
+        print ("     SELF.PAYLOAD:::::::::::::::", self.payload)
+        #payload.extend(self.payload.payload(apci=self.value))
+        return payload
+
+
+
         
     def __str__(self):
-        print ("BITS:", self.bits)
+        # print ("BITS:", self.bits)
+        # print ("APCI PAYLOAD:", self.payload, type(self.payload))
+        if self.payload:
+            payload = self.payload
+        else:
+            payload = ""
         if self.bits < 0:
             # assume 4 bit apci
             bits =4
@@ -313,8 +352,8 @@ class APCI(object):
             assumed = ""
         apci = getattr(self, f'apci{bits}')
         if apci in self.apci_map:
-            return f"APCI{self.bits}{assumed}:{self.apci_map[apci]}"
-        return f"APCI{self.bits}{assumed}:UNKNOWN {apci}, {apci:0x}"
+            return f"APCI{self.bits}{assumed}:{self.apci_map[apci]}:{payload}"
+        return f"APCI{self.bits}{assumed}:UNKNOWN {apci}, {apci:0x}:{payload}"
         
     def __repr__(self):
         if self.bits == 4:
@@ -472,6 +511,7 @@ class Telegram(object):
 
     def _apci_payload(self):
         print ("apci_payload: SELF.PAYLOAD:", self.payload)
+        print ("apci_payload: SELF.LENGTH:", self.length)
         print ("apci_payload: SELF.APCI.BITS:", self.apci.bits)
         if self.apci.bits == 4:
             # need to look at length of packet
@@ -745,7 +785,9 @@ class Telegram(object):
         if self.length == 0:
             self.payload = None
         elif self.length == 1 and get_apci:
-            self.payload == struct.pack('>B',self.apci_data)
+            print ("BONKERS", self.apci_data)
+            self.payload = struct.pack('>B',self.apci_data)
+            print ("END BONKERS:", self.payload)
         else:
             self.payload = bytearray()
             for i in range(self.pointer, self.pointer + self.length):
@@ -776,6 +818,7 @@ class Telegram(object):
         else:
             # payload from 3rd plus octet 
             pass
+        print ("add_data_packet(): self.apci:", self.apci)
         self.payload = dpt.payload(self.apci)
         # length is the length of the dpt payload
         self.length = len(self.payload)
@@ -789,6 +832,25 @@ class Telegram(object):
     def frame(self):
         # construct a telegram frame to be sent
         # pack the CF,SA,DA, octet6 and payload
+        # figure out payload first, since we need the length for octet6
+        print ("TYPE OF PAYLOAD:", type(self.payload))
+        if self.payload is None and self.apci:
+            print ("MMMMMMMEEE HEEREEEE")
+            payload = bytearray()
+            # fist byte of payload
+            if self.sqn < 0:
+                sqn = 0
+            else:
+                sqn = self.sqn
+            if not self.data_packet:
+                payload.extend(struct.pack('B',self.tpci << 6 + sqn << 4  + self.control_data))
+            # if it is a data packet, then add more octets for the apci & data
+            else:
+                payload.extend(struct.pack('B',self.tpci << 6 + sqn << 4 + self.apci.high_order_bits))
+                payload.extend(self.apci.bytes)
+            self.payload = payload
+            print ("MMMMMMMEEE HEEREEEE PAYLOAD", payload)
+            self.length = len(self.payload)
         print ("LENGTH:", self.length)
         print ("OCTET6:", self.octet6)
         print ("PAYLOAD:", self.payload)

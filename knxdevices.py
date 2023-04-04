@@ -213,10 +213,19 @@ class KNXAsyncDevice(object):
                     return
                 print (f"COULD NOT REMOVE CONNECTION TO {telegram.sa}")
             elif telegram.control_data == 2:   # TL_ACK
-                pass
+                print ("T_ACK")
+                csm = self.connection_get(telegram.sa)
+                print ("ACK CSM: ", csm)
+                if csm:
+                    csm.T_ACK(telegram.sqn)
+                csm = None  # we dont need to do anything
             elif telegram.control_data == 3:   # TL_NAK
                 # tell the csm we need to resend
-                pass
+                csm = self.connection_get(telegram.sa)
+                if csm:
+                    csm.resend_frame = telegram.sqn
+                    csm.action='T_NAK'
+                    csm.T_NAK(telegram.sqn)
             # dump this in the tx queue
             self.tx_queue.put(csm)
         else:
@@ -232,12 +241,14 @@ class KNXAsyncDevice(object):
                 print (" = TELEGRAM PAYLOAD:", telegram.payload)
                 print (" ===== APCI NAME   :", telegram.apci.name)
                 print (" ===== APCI PAYLOAD:", telegram.apci.payload)
+                print (dir(telegram.apci.payload))
                 csm = self.connection_get(telegram.sa)
                 if csm:
                     print ("GOT CSM:", csm)
                     # update properties and set them in the csm
                     self._update_properties()
                     csm.properties = self.properties
+                    csm.read_property(telegram.apci.payload)
                     csm.set_action(telegram.apci.name)
                     print ("KKKKKFDKFJKJFDKF:", telegram.apci.name, type(telegram.apci.name))
             # finally ----
