@@ -119,8 +119,10 @@ class KNXAsyncDevice(object):
         # properties
         self.properties = {}
         self.pid_progmode = False   # 0x36 54 0, not in programming mode, 1 in progr mode
+        self.properties[54] = 0    # pid programming mode, 0x
         self.properties[56] = MAX_TELEGRAM_LENGTH - 10   # MAX APDU LENGTH, 0x38
-        self.properties[58] = 0    # pid programming mode, 0x
+        self.properties[57] = self.address.pid_subnet_addr # PID_SUBNET_ADDR (PID=57, 0x37 high octet of device addr
+        self.properties[58] = self.address.pid_device_addr # PID_DEVICE_ADDR (PID=58, 0x38), low octet of device addr
 
 
     def _update_properties(self):
@@ -191,10 +193,10 @@ class KNXAsyncDevice(object):
         # do we 
         print ("PROCESS TELEGRAM T_telegram.control_data:", telegram.control_data)
         if telegram.cf.priority == 0:
-            print ("SYSTEM TELEGRAM FOR ME!!!")
+            print (" --- SYSTEM TELEGRAM FOR ME!!!")
             print (telegram.frame())
         if telegram.control_data is not None:
-            print ("CONTROL DATA MANAGMENT TELEGRAM!!!", telegram.control_data)
+            print (" --- CONTROL DATA MANAGMENT TELEGRAM!!!", telegram.control_data)
             if telegram.control_data == 0:   # TL_connect
                 # ack it and create a connection
                 print ("T_CONNECT")
@@ -227,21 +229,19 @@ class KNXAsyncDevice(object):
                     csm.action='T_NAK'
                     csm.T_NAK(telegram.sqn)
             # dump this in the tx queue
-            self.tx_queue.put(csm)
+            if csm:
+                self.tx_queue.put(csm)
         else:
             print ("NORMALISH TELEGRAM FOR ME!!!")
             if telegram.apci.name == 'A_DeviceDescriptor_Read':
-                print ("HERES MY DD BITCH")
                 csm = self.connection_get(telegram.sa)
                 if csm:
                     csm.set_action(telegram.apci.name)
                 #csm = KNXConnection(telegram.sa, sa=self.address, action=telegram.apci.name)
             if telegram.apci.name == 'A_PropertyValue_Read':
-                print ("READ THIS MOTHER FUCKER")
                 print (" = TELEGRAM PAYLOAD:", telegram.payload)
                 print (" ===== APCI NAME   :", telegram.apci.name)
                 print (" ===== APCI PAYLOAD:", telegram.apci.payload)
-                print (dir(telegram.apci.payload))
                 csm = self.connection_get(telegram.sa)
                 if csm:
                     print ("GOT CSM:", csm)
@@ -250,7 +250,6 @@ class KNXAsyncDevice(object):
                     csm.properties = self.properties
                     csm.read_property(telegram.apci.payload)
                     csm.set_action(telegram.apci.name)
-                    print ("KKKKKFDKFJKJFDKF:", telegram.apci.name, type(telegram.apci.name))
             # finally ----
             if csm:
                 self.tx_queue.put(csm)

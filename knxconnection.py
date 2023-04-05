@@ -51,10 +51,14 @@ class KNXConnection(object):
 
     def T_ACK(self, sqn):
         # I got an ack for a packet I sent, remove from ack
+        print ("CSM TACK", sqn)
         if sqn in self.ack:
+            print ({"- CSM TACK POP SQN ", sqn})
             self.ack.pop(sqn)
             # remove the frame
+            print ({"- REMOVE FRAME CSM TACK POP SQN ", sqn})
             self.frames.pop(sqn)
+            print ({"- DONE WITH ", sqn})
             return True
         return False
 

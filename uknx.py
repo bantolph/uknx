@@ -137,6 +137,15 @@ class KNXAddress(object):
         # encode as a bytes
         return bytearray(self.byte)
 
+    @property
+    def pid_subnet_addr(self):
+        # high order byte
+        return bytearray(self.byte)[0]
+
+    @property
+    def pid_device_addr(self):
+        # low order byte
+        return bytearray(self.byte)[1]
 
 class KNXSourceAddress(KNXAddress):
 
