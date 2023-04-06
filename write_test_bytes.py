@@ -33,7 +33,6 @@ frames['T_ACK'] = {'frame': rawframe,
                    'b64frame': base64.b64encode(rawframe),
                    'text': 'L_Data system from 1.1.13 to 1.1.3 hops: 06 T_ACK Serno:00',
                                     }
-"""
 # L_Busmon: B0 11 0D 11 03 65 47 D5 00 38 10 01 9F :L_Data system from 1.1.13 to 1.1.3 hops: 06 T_Data_Connected serno:01 A_PropertyValue_Read Obj:00  Prop: 38  start: 01  max_nr: 01
 rawframe = b'\xB0\x11\x0D\x11\x03\x65\x47\xD5\x00\x38\x10\x01\x9F'
 frames['A_PropertyValue_Read'] = {'frame': rawframe,
@@ -56,7 +55,6 @@ frames['T_Disconnect'] = {'frame': rawframe,
                        'b64frame': base64.b64encode(rawframe),
                        'text': 'L_Busmon: B0 11 0D 11 03 60 81 A0 :L_Data system from 1.1.13 to 1.1.3 hops: 06 T_Disconnect',
                       }
-"""
 
 print ("FRAMES:", frames.keys())
 

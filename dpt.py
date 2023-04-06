@@ -45,8 +45,6 @@ class PropertyValueResponse(object):
         output += f'{data})'
         return output
 
-            
-
 
 class PropertyValueRead(object):
     # this is a PDU - the APCI bits
@@ -68,6 +66,13 @@ class PropertyValueRead(object):
         return f'(IDX:{self.object_index} PID:{self.property_id} #:{self.number_of_elements} Start IDX: {self.start_index})'
 
 
+class PropertyValueWrite(PropertyValueRead):
+    def __init__(self, property_id, object_index = 0, number_of_elements = 0, start_index = 0):
+        self.object_index = object_index
+        self.property_id = property_id  # int(byte)
+        self.number_of_elements = number_of_elements & 0b1111 # 4 bit value
+        self.start_index = start_index   # 12 bit value
+        self.data = None
 
 
 class DPT(object):

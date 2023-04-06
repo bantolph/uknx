@@ -232,7 +232,8 @@ class KNXAsyncDevice(object):
             if csm:
                 self.tx_queue.put(csm)
         else:
-            print ("NORMALISH TELEGRAM FOR ME!!!")
+            print ("NORMALISH TELEGRAM FOR ME!!!", telegram.apci.name)
+            csm = "MISSING"
             if telegram.apci.name == 'A_DeviceDescriptor_Read':
                 csm = self.connection_get(telegram.sa)
                 if csm:
@@ -250,9 +251,26 @@ class KNXAsyncDevice(object):
                     csm.properties = self.properties
                     csm.read_property(telegram.apci.payload)
                     csm.set_action(telegram.apci.name)
+            if telegram.apci.name == 'A_PropertyValue_Write':
+                print (" = TELEGRAM PAYLOAD:", telegram.payload)
+                print (" ===== APCI NAME   :", telegram.apci.name)
+                print (" ===== APCI PAYLOAD:", telegram.apci.payload)
+                csm = self.connection_get(telegram.sa)
+                if csm:
+                    print ("GOT CSM:", csm)
+                    # update properties and set them in the csm
+                    self._update_properties()
+                    csm.properties = self.properties
+                    write_resp = csm.write_property(telegram.apci.payload)
+                    print ("PROPERY WRITE RESPONSE:", write_resp)
+                    csm.set_action(telegram.apci.name)
             # finally ----
-            if csm:
+            if csm is not None:
                 self.tx_queue.put(csm)
+            elif csm == "MISSING":
+                print ("NO CALL FOR ", telegram.apci.name)
+            else:
+                print ("FALLTHROUGH ", telegram.apci.name)
 
     def start(self):
         # start event loop
@@ -338,27 +356,28 @@ class KNXAsyncDevice(object):
                 print ("\n\n\n")
                 csm = self.tx_queue.get()
                 print ("GOT CONNECTION:", csm)
-                # run a function with the action name in the csm, this is either really clever or realy stupid
-                print ("CSM ACTION:", csm.action)
-                #frame = getattr(csm, csm.action)()
-                frame = csm.action
-                print ("WRITING FRAME:", frame)
-                for i in range (0, len(frame)):
-                    print ("OCTET", i, frame[i])
-                    if i == len(frame) -1:
-                        # end of packet
-                        cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
-                    else:
-                        cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
-                    if self.debug:
-                        pass
-                        #print ("-uart cmd:", cmd)
-                    else:
-                        await self.swriter.awrite(cmd)
-                # read the response
-                #asyncio.sleep_ms(100)
-                #resp = self.sreader.read(10)
-                #self.debug_resp(resp)
+                if csm:
+                    # run a function with the action name in the csm, this is either really clever or realy stupid
+                    print ("CSM ACTION:", csm.action)
+                    #frame = getattr(csm, csm.action)()
+                    frame = csm.action
+                    print ("WRITING FRAME:", frame)
+                    for i in range (0, len(frame)):
+                        print ("OCTET", i, frame[i])
+                        if i == len(frame) -1:
+                            # end of packet
+                            cmd = struct.pack("<BB", U_L_DATAEND +i, frame[i])
+                        else:
+                            cmd = struct.pack("<BB", U_L_DATASTART + i, frame[i])
+                        if self.debug:
+                            pass
+                            #print ("-uart cmd:", cmd)
+                        else:
+                            await self.swriter.awrite(cmd)
+                    # read the response
+                    #asyncio.sleep_ms(100)
+                    #resp = self.sreader.read(10)
+                    #self.debug_resp(resp)
 
     # send U_Reset.request-Service
     def reset_device(self):

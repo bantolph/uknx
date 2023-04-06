@@ -102,6 +102,18 @@ class KNXConnection(object):
             return True
         print ("ME NO HAVE PROPERTY", property, type(property))
         return False
+
+    def write_property(self, property):
+        print ("ME PROPS:", self.properties, type(self.properties))
+        print ("WRITE PROPS:", property, type(property))
+        if property.property_id in self.properties:
+            print ("MY PROPERTY IS", self.properties[property.property_id])
+            self.property_resp.number_of_elements = 1
+            self.property_resp.start_index = 1
+            self.property_resp.add_data(self.properties[property.property_id])
+            return True
+        print ("ME NO HAVE PROPERTY", property, type(property))
+        return False
         
 
     def A_PropertyValue_Read(self):
@@ -126,4 +138,25 @@ class KNXConnection(object):
         self.frames[self.sqn] = resp.frame()
         return resp.frame()
         
+    def A_PropertyValue_Write(self):
+        print ("A_PropertyValue_Write DEVICE PROPERTIES", self.properties)
+        resp = Telegram(src=self.sa, dst=self.da,
+                        init=True,
+                        sqn=self.sqn,
+                        apci='A_PropertyValue_Response'
+                       )
+        print (self.property_resp)
+        #resp.add_data_packet(self.property_resp, apci='A_PropertyValue_Response')
+        resp.apci.add_payload(self.property_resp)
+        resp.set_unicast()
+        resp.length = len(resp.apci.payload)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE", resp)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE.apci", resp.apci)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE.hop_count", resp.hop_count)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE.address_type_flag", resp.address_type_flag)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE.length", resp.length)
+        print ("BLOAAAAAAAAAAAAAAAAAAAAAAAAAA RESPONSE.octet6", resp.octet6)
+        self.ack[self.sqn] = time.time()
+        self.frames[self.sqn] = resp.frame()
+        return resp.frame()
 

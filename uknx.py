@@ -6,6 +6,7 @@ import time
 import struct
 import uasyncio as asyncio
 from dpt import PropertyValueRead
+from dpt import PropertyValueWrite
 from dpt import PropertyValueResponse
 
 MAX_TELEGRAM_LENGTH=137
@@ -274,7 +275,7 @@ class APCI(object):
         # pares payload bytes to make a payload object
         print ("PAYLOAD PARSE", payload)
         if self.name == 'A_PropertyValue_Read' and len(payload) == 4:
-            # READ THIS BITCH
+            # READ THIS 
             object_index = payload[0]
             property_id = payload[1]
             number_of_elements = payload[2] >> 4
@@ -290,6 +291,24 @@ class APCI(object):
                                              start_index=start_index
                                              )
             print ("KKKKKKKKKKKKKKKKKKKK", self.payload)
+        if self.name == 'A_PropertyValue_Write':
+            # WRITE THIS 
+            object_index = payload[0]
+            property_id = payload[1]
+            number_of_elements = payload[2] >> 4
+            # last 4 bits of octet 10 + octet 11
+            start_index = (payload[2] & 0b1111) << 8 + payload[3]
+            print ("WRITE: object_index:", object_index)
+            print ("WRITE: pid:", property_id)
+            print ("WRITE: no elems:", number_of_elements)
+            print ("WRITE: start index:", start_index)
+            # need to set the index and then read it back
+            self.payload = PropertyValueWrite(property_id, 
+                                              object_index = object_index,
+                                              number_of_elements= number_of_elements,
+                                              start_index=start_index
+                                              )
+            print ("WRITE KKKKKKKKKKKKKKKKKKKK", self.payload)
 
 
 
